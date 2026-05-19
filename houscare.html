@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Houscare — Daniel Vega Inversiones Inmobiliarias</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #F0F4F8; font-family: -apple-system, 'Segoe UI', sans-serif; }
+  #root { max-width: 430px; margin: 0 auto; min-height: 100vh; background: #F0F4F8; }
+  select, input, textarea, button { font-family: inherit; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useEffect } = React;
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+const SECTORES   = ["Administración","Aire Acondicionado","Albañilería","Ascensor","Carpintería","Cerrajería","Destapaciones","Electricidad","Fumigación","Gas / Calefacción","Herrería","Jardinería","Limpieza","Limpieza de tanques","Maestro mayor de obras","Otro","Pintura","Plomería","Techista / Filtraciones","Vidriería","Yesería"];
+const PRIORIDADES = ["Alta","Media","Baja"];
+const ESTADOS    = ["Pendiente","Derivado","En proceso","Presupuestado","Esperando respuesta","Resuelto","Cerrado"];
+const QUIEN_PAGA = ["Sin definir","Propietario","Inquilino","A Medias","Inmobiliaria","Por Porcentaje"];
+
+const PC = {
+  Alta:  { bg:"#FEE2E2", t:"#991B1B", d:"#EF4444" },
+  Media: { bg:"#FEF3C7", t:"#92400E", d:"#F59E0B" },
+  Baja:  { bg:"#DBEAFE", t:"#1E40AF", d:"#3B82F6" },
+};
+const EC = {
+  "Pendiente":           { bg:"#FEF3C7", t:"#92400E",  d:"#F59E0B" },
+  "Derivado":            { bg:"#DBEAFE", t:"#1E40AF",  d:"#3B82F6" },
+  "En proceso":          { bg:"#D1FAE5", t:"#065F46",  d:"#10B981" },
+  "Esperando respuesta": { bg:"#FCE7F3", t:"#9D174D",  d:"#EC4899" },
+  "Resuelto":            { bg:"#E0F2FE", t:"#075985",  d:"#0EA5E9" },
+  "Presupuestado":       { bg:"#F3E8FF", t:"#6B21A8",  d:"#9333EA" },
+  "Cerrado":             { bg:"#F1F5F9", t:"#475569",  d:"#94A3B8" },
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const daysDiff = d => d ? Math.floor((Date.now() - new Date(d)) / 86400000) : 0;
+const fmtDate  = d => { if (!d) return "—"; const [y,m,dd] = d.split("-"); return `${dd}/${m}/${y}`; };
+const fmt$     = n => n ? `$${Number(n).toLocaleString("es-AR")}` : "—";
+const today    = () => new Date().toISOString().split("T")[0];
+const readFile = (file, cb) => { const r = new FileReader(); r.onload = e => cb(e.target.result); r.readAsDataURL(file); };
+
+// ─── Datos base ───────────────────────────────────────────────────────────────
+const PROPS_DATA = [
+  { id:"P001", dir:"PARAGUAY 6204", tipo:"Casa", ownerId:"OW035", inquilino:"NIN, Raul Oscar", emailInq:"raulnin61@gmail.com", telInq:"3413507624" },
+  { id:"P002", dir:"BATLLE Y ORDOÑEZ 1761", tipo:"Casa", ownerId:"OW044", inquilino:"SANCHEZ, ALEJANDRA JAQUELINA", emailInq:"alejandrasanchezdebatle@gmail.com", telInq:"4650999 (nuevo tel)" },
+  { id:"P003", dir:"MILAN 1510", tipo:"Casa", ownerId:"OW007", inquilino:"Brian Leonel, MIÑO", emailInq:"betinacandelabruselario@gmail.com", telInq:"341-2728089" },
+  { id:"P004", dir:"GARIBALDI 1355", tipo:"Casa", ownerId:"OW045", inquilino:"SCIPIONI, Patricia Silvia", emailInq:"hermesscipioni@gmail.com", telInq:"3416042170" },
+  { id:"P005", dir:"ESPAÑA 5049", tipo:"Casa", ownerId:"OW039", inquilino:"RAIMUNDO, ISRAEL MATIAS", emailInq:"matycocinaok@gmail.com", telInq:"3402540631" },
+  { id:"P006", dir:"LAMADRID 838", tipo:"Casa", ownerId:"OW034", inquilino:"NEYRA, Carlos Javier", emailInq:"mily.rr13579@gmail.com", telInq:"3415049039" },
+  { id:"P007", dir:"PUEYRREDON 4950", tipo:"Casa", ownerId:"OW018", inquilino:"FABIANO, Hernan Antonio", emailInq:"andreaalarcon80@gmail.com", telInq:"3416845303" },
+  { id:"P008", dir:"MUÑOZ 206", tipo:"Casa", ownerId:"OW009", inquilino:"CASA, Maria Florencia", emailInq:"florenciacasa@hotmail.com", telInq:"3413633897" },
+  { id:"P009", dir:"PASAJE DEL CAMPO 4430", tipo:"Casa", ownerId:"OW020", inquilino:"FERNANDEZ, Noelia Soledad", emailInq:"noeliafernandez30@hotmail.com", telInq:"3412578934" },
+  { id:"P010", dir:"SINOPOLIS 445", tipo:"Casa", ownerId:"OW063", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P011", dir:"COLON 3180", tipo:"Casa", ownerId:"OW054", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P012", dir:"MILAN 1484", tipo:"Casa", ownerId:"OW001", inquilino:"ARCE, Julieta", emailInq:"julieta.arcep@hotmail.com", telInq:"3413432039" },
+  { id:"P013", dir:"Garibaldi 126", tipo:"Casa", ownerId:"OW055", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P014", dir:"Pje Ipe 6591", tipo:"Casa", ownerId:"OW026", inquilino:"LOPEZ, Axel David", emailInq:"axellopez0196@gmail.com", telInq:"3765056666" },
+  { id:"P015", dir:"Pje del Campo 4437", tipo:"Casa", ownerId:"OW019", inquilino:"FERNANDEZ, Jaquelina Andrea", emailInq:"jaqui_nn3@hotmail.com", telInq:"3413-276585" },
+  { id:"P016", dir:"Viamonte 986", tipo:"Casa", ownerId:"OW065", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P017", dir:"Gaspary 4625", tipo:"Casa", ownerId:"OW005", inquilino:"BARRIOS, Eliana Alejandra", emailInq:"barrioseliana704@gmail.com", telInq:"3416 68-7272" },
+  { id:"P018", dir:"Madre Cabrini 2719 B", tipo:"Casa", ownerId:"OW024", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P019", dir:"Juan Manuel de Rosas 4039", tipo:"Casa", ownerId:"OW024", inquilino:"GONZALEZ, Beatriz Maria del Lujan", emailInq:"abrilfernandez341@gmail.com", telInq:"341-2568044" },
+  { id:"P020", dir:"REGIMIENTO XI 660", tipo:"Casa", ownerId:"OW041", inquilino:"REBAGLIATTI, Ricardo Ariel", emailInq:"administracion@indumec.com.ar", telInq:"3415975404" },
+  { id:"P021", dir:"Sánchez de Bustamante 8", tipo:"Casa", ownerId:"OW016", inquilino:"DIAZ, Maria Angelica", emailInq:"emanuelferhm@gmail.com", telInq:"3417543630" },
+  { id:"P022", dir:"Iriondo 4167", tipo:"Casa", ownerId:"OW060", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P023", dir:"Garibaldi 128", tipo:"Casa", ownerId:"OW056", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P024", dir:"Julián de Leyva 6334", tipo:"Casa", ownerId:"OW004", inquilino:"BAEZ, Ornella Agustina", emailInq:"martinvalentinmachado@gmail.com", telInq:"3416490510" },
+  { id:"P025", dir:"COLOMBO 1285", tipo:"Casa", ownerId:"OW036", inquilino:"NUÑEZ, Diego Javier", emailInq:"", telInq:"341 3658269" },
+  { id:"P026", dir:"JOSE INGENIEROS 3596", tipo:"Casa", ownerId:"OW029", inquilino:"MACHUCA, Miguel de Jesus", emailInq:"alejandrabarrera425@gmail.com", telInq:"" },
+  { id:"P027", dir:"Urquiza 2032 2-8", tipo:"Departamento", ownerId:"OW009", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P028", dir:"Sabattini 2972 D2", tipo:"Departamento", ownerId:"OW062", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P029", dir:"GUTIERREZ 32 2-5 M9", tipo:"Departamento", ownerId:"OW058", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P030", dir:"Necochea 1945 1-15", tipo:"Departamento", ownerId:"OW013", inquilino:"IRUSTA, Angela Ines", emailInq:"angelainesirusta@gmail.com", telInq:"3329469255" },
+  { id:"P031", dir:"Montevideo 1974 1-2", tipo:"Departamento", ownerId:"OW014", inquilino:"ORSINGHER, Eliana Daniela", emailInq:"orsinghereliana@gmail.com.ar", telInq:"3446540187" },
+  { id:"P032", dir:"MONTEVIDEO 1974 1-A", tipo:"Departamento", ownerId:"OW014", inquilino:"CRETTAZ, Franco Jesus", emailInq:"fran.crettaz77@gmail.com", telInq:"3467641308" },
+  { id:"P033", dir:"Gutierrez2326 2-C", tipo:"Departamento", ownerId:"OW059", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P034", dir:"Teniente Sanchez 4648 3-6 M02 CC", tipo:"Departamento", ownerId:"OW012", inquilino:"CORRO, Maria del Rocio", emailInq:"ma.delrocio8285@gmail.com", telInq:"3415142814" },
+  { id:"P035", dir:"H. de la Quintana 3414 PB 1", tipo:"Departamento", ownerId:"OW042", inquilino:"RODRIGUEZ, Jose Daniel", emailInq:"daniel_tomaterc@hotmail.com", telInq:"3413938264" },
+  { id:"P036", dir:"Teniente General Sanchez 4628 1-8", tipo:"Departamento", ownerId:"OW064", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P037", dir:"Ayacucho 5634 2-1", tipo:"Departamento", ownerId:"OW051", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P038", dir:"Sanchez de Thompson 72 7-3", tipo:"Departamento", ownerId:"OW043", inquilino:"RODRIGUEZ, Sofia Maria del Lujan", emailInq:"sofymlrodriguez@gmail.com", telInq:"3413071012" },
+  { id:"P039", dir:"CERRITO 84 2-2", tipo:"Departamento", ownerId:"OW008", inquilino:"BUSCHIAZZO, Joaquin Ezequiel", emailInq:"Ezequielbuschiazzo19@gmail.com", telInq:"3434563034" },
+  { id:"P040", dir:"PASAJE GHIGLIONE 4514 1-2A", tipo:"Departamento", ownerId:"OW030", inquilino:"MARQUEZ, Rosalina", emailInq:"serviciosyobrasrosario@hotmail.com", telInq:"3412832375" },
+  { id:"P041", dir:"CERRITO 84 3-3", tipo:"Departamento", ownerId:"OW030", inquilino:"NARDIELLO, Walter Jose", emailInq:"", telInq:"3413146764" },
+  { id:"P042", dir:"GUTIERREZ 4 2-4", tipo:"Departamento", ownerId:"OW017", inquilino:"DUTTO, Carla Sofia", emailInq:"carla_dutto@hotmail.com", telInq:"3416-925215" },
+  { id:"P043", dir:"ALEM 3636 3-11 E2", tipo:"Departamento", ownerId:"OW037", inquilino:"OLIVERA, Emanuel", emailInq:"micaelasr07@hotmail.com", telInq:"341-2278438 (Micaela)" },
+  { id:"P044", dir:"SARMIENTO 2031 4-4", tipo:"Departamento", ownerId:"OW002", inquilino:"ARCE, Manuel", emailInq:"misteriosa.vestimenta@gmail.com", telInq:"341 3017372 (Maite)" },
+  { id:"P045", dir:"Isola 179 Bis PB 8 M2", tipo:"Departamento", ownerId:"OW021", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P046", dir:"Sanchez de Thompson 72 7-4 TH", tipo:"Departamento", ownerId:"OW033", inquilino:"MIÑO, Nadia Berenice", emailInq:"naiibereniice.23@gmail.com", telInq:"3416193864" },
+  { id:"P047", dir:"H. de la Quintana 3414 1-2", tipo:"Departamento", ownerId:"OW038", inquilino:"OVIEDO, Marilin Solange", emailInq:"oviedomarilin5@gmail.com", telInq:"341-2527172" },
+  { id:"P048", dir:"NECOCHEA 2377 1-3", tipo:"Departamento", ownerId:"OW003", inquilino:"BABAGLIO, Noelia Gisel", emailInq:"babaglio.noelia@gmail.com", telInq:"341-2173542" },
+  { id:"P049", dir:"Sanchez de Thompson 120 9-1 TJ", tipo:"Departamento", ownerId:"OW040", inquilino:"REARTE, CRISTIAN MAXIMILIANO", emailInq:"cristianbj777@live.com.ar", telInq:"3413812115" },
+  { id:"P050", dir:"CERRITO 479 3-1", tipo:"Departamento", ownerId:"OW015", inquilino:"DE CASO, Sol Belen", emailInq:"solbdecaso@gmail.com", telInq:"3413405523" },
+  { id:"P051", dir:"GUTIERREZ 32 1-1 M9", tipo:"Departamento", ownerId:"OW032", inquilino:"MATTAR, FATIMA ALEJANDRA", emailInq:"", telInq:"155-845984" },
+  { id:"P052", dir:"ISOLA (BIS) 179 0-2 M2", tipo:"Departamento", ownerId:"OW023", inquilino:"GAUNA, Claudio Javier", emailInq:"aritast30@gmail.com", telInq:"3413600030" },
+  { id:"P053", dir:"Isola 179 1-8 M2", tipo:"Departamento", ownerId:"OW021", inquilino:"GAMBOA, Sergio Gabriel", emailInq:"sergiodgamboa23@gmail.com", telInq:"3417559815" },
+  { id:"P054", dir:"CAFFERATA 1932 1-5", tipo:"Departamento", ownerId:"OW011", inquilino:"COLMAN, Monica Mercedes", emailInq:"sole.2811@gmail.com", telInq:"3471617164" },
+  { id:"P055", dir:"GRANDOLI 4831 3-13 P-C", tipo:"Departamento", ownerId:"OW047", inquilino:"VEGA, Morena", emailInq:"morenavegam@gmail.com", telInq:"3412511856" },
+  { id:"P056", dir:"CHACABUCO 2222 1-2", tipo:"Departamento", ownerId:"OW006", inquilino:"BIMBI, Brenda antonela", emailInq:"brenbimbi2002@gmail.com", telInq:"3462572716" },
+  { id:"P057", dir:"Chacabuco 2169 2-2 A", tipo:"Departamento", ownerId:"OW052", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P058", dir:"LISANDRO DE LA TORRE 816", tipo:"Galpón", ownerId:"OW010", inquilino:"CIMOLAI, SAMANTA", emailInq:"sammycimolai@gmail.com", telInq:"4615530" },
+  { id:"P059", dir:"FRAGATA SARMIENTO 2989", tipo:"Galpón", ownerId:"OW045", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P060", dir:"COLOMBO 1234", tipo:"Galpón", ownerId:"OW053", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P061", dir:"Ayacucho 5959", tipo:"Galpón", ownerId:"OW027", inquilino:"LOPEZ, Gonzalo", emailInq:"gonzalolopezastegiano@gmail.com", telInq:"3416205014" },
+  { id:"P062", dir:"CRESPO 1101", tipo:"Local Comercial", ownerId:"OW031", inquilino:"MASTERNET SRL", emailInq:"eperazzo@masternetsc.com.ar", telInq:"156-802662" },
+  { id:"P063", dir:"AMEGHINO 401", tipo:"Local Comercial", ownerId:"OW048", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P064", dir:"Hilarion de la Quintana 296", tipo:"Local Comercial", ownerId:"OW028", inquilino:"LOPEZ, Sebastian Abel", emailInq:"sebaslop_20@hotmail.com", telInq:"3412133039" },
+  { id:"P065", dir:"GRANDOLI 4096", tipo:"Local Comercial", ownerId:"OW057", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P066", dir:"Hilarion de la Quintana 288", tipo:"Local Comercial", ownerId:"OW022", inquilino:"VAZQUEZ, Ayelen Antonella", emailInq:"vazquezayelen@hotmail.com", telInq:"3413313092" },
+  { id:"P067", dir:"Mariano Moreno 1482", tipo:"Local Comercial", ownerId:"OW013", inquilino:"COUSELO, Diego Hernan", emailInq:"couselodiego88@gmail.com", telInq:"3412574222" },
+  { id:"P068", dir:"AYACUCHO 5495", tipo:"Local Comercial", ownerId:"OW022", inquilino:"GARCIA, Hernan Alberto", emailInq:"kenatonkids@hotmail.com", telInq:"3413711430" },
+  { id:"P069", dir:"HILARION DE LA QUINTANA 290", tipo:"Local Comercial", ownerId:"OW022", inquilino:"HERRERA, German Andres", emailInq:"cuervobike1987@gmail.com", telInq:"3412-010713" },
+  { id:"P070", dir:"San Martin2387", tipo:"Local Comercial", ownerId:"OW046", inquilino:"SORIA, Salvador", emailInq:"motogaragerosario@gmail.com", telInq:"3415848711" },
+  { id:"P071", dir:"AYACUCHO 5499", tipo:"Local Comercial", ownerId:"OW008", inquilino:"CARREL, Elias Roman", emailInq:"eliascarrelx7@gmail.com", telInq:"341-3926211" },
+  { id:"P072", dir:"PRESIDENTE QUINTANA 1382", tipo:"PH", ownerId:"OW061", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P073", dir:"Av. Perón 525 Swift", tipo:"PH", ownerId:"OW049", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P074", dir:"Ayacucho 1838 D2", tipo:"PH", ownerId:"OW050", inquilino:"", emailInq:"", telInq:"" },
+  { id:"P075", dir:"Esmeralda 4050", tipo:"PH", ownerId:"OW025", inquilino:"LIZONDO, Roberto Ezequiel", emailInq:"marcecarafa79@gmail.com", telInq:"3412556093 (Marcela)" },
+  { id:"P076", dir:"Hungria 6154", tipo:"PH", ownerId:"OW009", inquilino:"MATTOS RAMIREZ, Fernando Luis", emailInq:"fernando_lepra@hotmail.com", telInq:"3416952330" },
+  { id:"P077", dir:"Paraguay 3318", tipo:"PH", ownerId:"OW025", inquilino:"", emailInq:"", telInq:"" },
+];
+const OWNERS = [
+  { id:"OW001", nombre:"GOMEZ, MARCELA", email:"fidelyyo1975@gmail.com", tel:"3413578169" },
+  { id:"OW002", nombre:"MAGLIARO, Julieta", email:"analiasolano1970@gmail.com", tel:"2976380" },
+  { id:"OW003", nombre:"MACELLO DAVERIO, Cristina Graciela", email:"diefazio@hotmail.com", tel:"3413039009" },
+  { id:"OW004", nombre:"PEREZ, Yolanda Beatriz", email:"diegosas72@gmail.com", tel:"153119100 hijo diego" },
+  { id:"OW005", nombre:"COCAÑA, Ma. de los Angeles", email:"mariangelescoc@hotmail.com", tel:"3413524759" },
+  { id:"OW006", nombre:"DELLEPIANE, FACUNDO", email:"sergiomarcos433@gmail.com", tel:"3413343817" },
+  { id:"OW007", nombre:"SCAPIN, ALBERTO EMILIO", email:"", tel:"" },
+  { id:"OW008", nombre:"DAMIANI, Fernando Andres", email:"paolade_rosa@hotmail.com", tel:"3415106982" },
+  { id:"OW009", nombre:"CORTES, SUSANA MONICA", email:"cortes-sm@hotmail.com", tel:"4611967 tel casa padres.-" },
+  { id:"OW010", nombre:"LOPEZ, Teresa Juana", email:"fededamiani87@live.com.ar", tel:"4620164" },
+  { id:"OW011", nombre:"AQUINO, GRACIELA", email:"aquinograciela008@gmail.com", tel:"2434538" },
+  { id:"OW012", nombre:"IÑIGUEZ, Laura Liliana", email:"teresajuanalopezsj@gmail.com", tel:"1122865449" },
+  { id:"OW013", nombre:"IMBERN, Carlos Alberto", email:"", tel:"3412689079" },
+  { id:"OW014", nombre:"SCAPIN, Angel Osvaldo", email:"", tel:"" },
+  { id:"OW015", nombre:"VINZIA, Javier Omar", email:"", tel:"" },
+  { id:"OW016", nombre:"Yeziorski, Laura Marcela", email:"", tel:"" },
+  { id:"OW017", nombre:"BENITEZ, BASILIO", email:"naibenitezz@live.com", tel:"4642756" },
+  { id:"OW018", nombre:"PAEZ, Smilsa Maria", email:"mdrizzi@gmail.com", tel:"6792576" },
+  { id:"OW019", nombre:"DEL PONTE, Andrea Carina", email:"ldivito1974@gmail.com", tel:"3415893543" },
+  { id:"OW020", nombre:"SCAPIN SRL", email:"", tel:"" },
+  { id:"OW021", nombre:"GONZALEZ, Sandra Patricia", email:"leonel.m.lanfranchi@gmail.com", tel:"341-2779918" },
+  { id:"OW022", nombre:"PAREDES, SUSANA GRACIELA", email:"cbuscema5609@gmail.com", tel:"3416123042" },
+  { id:"OW023", nombre:"Vinciguerra, Silvina", email:"", tel:"" },
+  { id:"OW024", nombre:"SAIDT, Hugo Marcelo", email:"silvinavinciguerra@hotmail.com", tel:"156632231/ 156-036395" },
+  { id:"OW025", nombre:"KOHLI, Alicia", email:"ariel.widmer@marseille.com.ar", tel:"" },
+  { id:"OW026", nombre:"SANTILLAN, Liliana Amalia", email:"", tel:"" },
+  { id:"OW027", nombre:"Sistemas Electronicos Rosario S.A, Hector Ricardo", email:"", tel:"" },
+  { id:"OW028", nombre:"DAMIANI, DARKO", email:"andreaderosa2009@hotmail.com", tel:"3415600883" },
+  { id:"OW029", nombre:"DELGADO, SATURNINA DEL VALLE", email:"", tel:"3412671766" },
+  { id:"OW030", nombre:"SUAREZ, Elena Angelina", email:"", tel:"" },
+  { id:"OW031", nombre:"Di Vito, Luis", email:"", tel:"4610765 /152-759965" },
+  { id:"OW032", nombre:"Rizzi, Marcelo", email:"angela.seria@hotmail.com", tel:"3412608188" },
+  { id:"OW033", nombre:"Machado, Melisa", email:"alejandropilla@gmail.com", tel:"6798839" },
+  { id:"OW034", nombre:"GRAELLS, MARIA", email:"josel247@hotmail.com", tel:"341 5701982 José Luis" },
+  { id:"OW035", nombre:"AGUIRRE, WALTER DAVID", email:"wda4670@gmail.com", tel:"2976412" },
+  { id:"OW036", nombre:"PILLA, JOSE MARIA", email:"scapinsrl@hotmail.com", tel:"4619133" },
+  { id:"OW037", nombre:"MORRESI, Daniel Enrique", email:"carlosrattoquintana@gmail.com", tel:"3413115172" },
+  { id:"OW038", nombre:"FRIAS, Andrea Paola", email:"fidelyyo1975@gmail.com", tel:"0346515663159   -  3465 4" },
+  { id:"OW039", nombre:"JALIL, SUSANA INES", email:"cristinamacello@hotmail.com", tel:"3491583896" },
+  { id:"OW040", nombre:"SCHMIDT, GRACIELA", email:"", tel:"" },
+  { id:"OW041", nombre:"RUBULOTTA, Jose", email:"administracion@sistemasrosario.com.ar", tel:"154688472" },
+  { id:"OW042", nombre:"RATTO, Carlos Alberto", email:"scapinsrl@hotmail.com", tel:"3416294211" },
+  { id:"OW043", nombre:"DOMINGUEZ, Sergio Daniel", email:"", tel:"7765987" },
+  { id:"OW044", nombre:"BRIGOLINO, ANA MARIA", email:"gustavoarielvelazquez@gmail.com", tel:"4637566" },
+  { id:"OW045", nombre:"IGUARAN, JOSE LUIS", email:"maurojuze@gmail.com", tel:"3413051997" },
+  { id:"OW046", nombre:"DE ROSA, Paola", email:"analiasolano1970@gmail.com", tel:"" },
+  { id:"OW047", nombre:"JUZEFISKZYN, Mauro Sebastian", email:"andreazeballos4@hotmail.com", tel:"4626835" },
+  { id:"OW048", nombre:"FIORIO, CARMEN MARIA", email:"sandpatricativa@gmail.com", tel:"5548996228151" },
+  { id:"OW049", nombre:"REY, HECTOR", email:"gracielaschmidt2626@gmail.com", tel:"156841914" },
+  { id:"OW050", nombre:"IANNINI, SILVANA ALEJANDRA", email:"eduardo.giorda@hotmail.com", tel:"4613068" },
+  { id:"OW051", nombre:"DIAZ, Daniel Eduardo", email:"ricardofernandez10001000@gmail.com", tel:"3413580307" },
+  { id:"OW052", nombre:"Guidobaldi, Adriana Mabel", email:"lauralilianainiguez@gmail.com", tel:"3415314318" },
+  { id:"OW053", nombre:"GRECO, Sergio Ariel", email:"carlosimbern@gmail.com", tel:"3415769310" },
+  { id:"OW054", nombre:"QUINTEROS, Regina Irma", email:"bertoscapin@hotmail.com", tel:"4852899" },
+  { id:"OW055", nombre:"LEIVA, Francisco Leon", email:"nestor.ortega.aus@gmail.com", tel:"3416456045" },
+  { id:"OW056", nombre:"LEIVA, Sergio Ruben", email:"ldivito1974@gmail.com", tel:"" },
+  { id:"OW057", nombre:"Saskin, Jose", email:"cbuscema5609@gmail.com", tel:"156922016 (marcelo)" },
+  { id:"OW058", nombre:"COSTANTINO, Gabriela Beatriz", email:"fernandoandresd@live.com.ar", tel:"4620164 SUSANA" },
+  { id:"OW059", nombre:"FERNANDEZ, Ricardo Alberto", email:"marce_dek@yahoo.com.ar", tel:"155956149" },
+  { id:"OW060", nombre:"COLOMBO, Cesar Javier", email:"cesarjaviercolombo@hotmail.com", tel:"3413050347" },
+  { id:"OW061", nombre:"BERRE, DORA BEATRIZ", email:"saimar001@hotmail.com.ar", tel:"466-9211" },
+  { id:"OW062", nombre:"SERIA, Angela", email:"", tel:"" },
+  { id:"OW063", nombre:"ESPINDOLA, YOLANDA", email:"andreapfrias78@gmail.com", tel:"3413284660" },
+  { id:"OW064", nombre:"ORTEGA, Nestor Enrique", email:"hector22rey@hotmail.com", tel:"4922124" },
+  { id:"OW065", nombre:"DE ROSA, Andrea", email:"maru_28argen@hotmail.com", tel:"4591226" },
+];
+const PROVEEDORES_INIT = [
+  { id:"PR001", nombre:"Daniel Vega", rubro:"Maestro mayor de obras", tel:"5493413017371", email:"danve61@gmail.com", cal:5, zona:"Gran Rosario", notas:"Traámites Rapidos. Precio Justo" },
+  { id:"PR002", nombre:"Mariano Ledesma", rubro:"Plomería", tel:"5493415408226", email:"", cal:5, zona:"Rosario Sur", notas:"Responde rápido, precio justo" },
+  { id:"PR003", nombre:"Fede Morad", rubro:"Electricidad", tel:"5493415425376", email:"", cal:5, zona:"Puerto Roldan", notas:"Responsable" },
+  { id:"PR004", nombre:"Marcelo Dowd", rubro:"Pintura", tel:"5493415764015", email:"", cal:5, zona:"Funes", notas:"Trabaja solo" },
+  { id:"PR005", nombre:"Mariano Ledesma", rubro:"Gas / Calefacción", tel:"5493415408226", email:"", cal:5, zona:"Rosario Sur", notas:"Responde rápido, precio justo" },
+  { id:"PR006", nombre:"Diego Cejas", rubro:"Albañilería", tel:"5493416450403", email:"", cal:5, zona:"Rosario Oeste", notas:"Responde rápido, precio justo" },
+  { id:"PR007", nombre:"Juan Ramirez", rubro:"Herrería", tel:"5493414687423", email:"", cal:5, zona:"Rosario Sur", notas:"Responsable" },
+  { id:"PR008", nombre:"Lucas Montenegro", rubro:"Cerrajería", tel:"5493416186496", email:"", cal:5, zona:"TdS2", notas:"Muy expeditivo" },
+];
+const RECLAMOS_INIT = [];
+
+const LS_KEY  = "houscare_reclamos_v2"; // ya no se usa, solo por compatibilidad
+
+// ─── Supabase ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://pgtnqlsdwggxbpctedcz.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBndG5xbHNkd2dneGJwY3RlZGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTkwNjgsImV4cCI6MjA5NDc5NTA2OH0.R0wFb5nwAjRss_aAf8hItRcxs6DJp9RSMX86ySKkgZI';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// camelCase → snake_case (para guardar en Supabase)
+const toRow = r => ({
+  id: r.id, fecha: r.fecha, ultima_act: r.ultimaAct,
+  propiedad: r.propiedad, inquilino: r.inquilino,
+  email: r.email||'', tel_inq: r.telInq||'',
+  sector: r.sector, prioridad: r.prioridad, estado: r.estado,
+  proveedor: r.proveedor||'',
+  costo_est: r.costoEst||0, costo_real: r.costoReal||0,
+  quien_paga: r.quienPaga,
+  pct_inq: r.pctInq||0, pct_prop: r.pctProp||0, pct_inmob: r.pctInmob||0,
+  descripcion: r.descripcion, notas: r.notas||'',
+  fotos: r.fotos||[], aprobacion: r.aprobacion||null,
+  prov_aceptado: r.provAceptado||null, mensajes: r.mensajes||[]
+});
+// snake_case → camelCase (al leer de Supabase)
+const fromRow = row => ({
+  id: row.id, fecha: row.fecha, ultimaAct: row.ultima_act,
+  propiedad: row.propiedad, inquilino: row.inquilino,
+  email: row.email||'', telInq: row.tel_inq||'',
+  sector: row.sector, prioridad: row.prioridad, estado: row.estado,
+  proveedor: row.proveedor||'',
+  costoEst: Number(row.costo_est)||0, costoReal: Number(row.costo_real)||0,
+  quienPaga: row.quien_paga,
+  pctInq: Number(row.pct_inq)||0, pctProp: Number(row.pct_prop)||0, pctInmob: Number(row.pct_inmob)||0,
+  descripcion: row.descripcion, notas: row.notas||'',
+  fotos: row.fotos||[], aprobacion: row.aprobacion||null,
+  provAceptado: row.prov_aceptado||null, mensajes: row.mensajes||[]
+});
+
+const EF      = { propiedad:"", inquilino:"", email:"", sector:"Plomería", prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:"", costoReal:"", quienPaga:"Sin definir", pctInq:34, pctProp:33, pctInmob:33, descripcion:"", notas:"", fotos:[] };
+const EIF     = { nombre:"", email:"", sector:"Plomería", descripcion:"", fotos:[] };
+
+// ─── Componentes compartidos ──────────────────────────────────────────────────
+function Badge({ label, type="estado", sm }) {
+  const c = type === "prioridad" ? PC[label] : EC[label];
+  if (!c) return <span style={{fontSize:10,color:"#64748B"}}>{label}</span>;
+  return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:sm?"2px 7px":"3px 9px",borderRadius:20,fontSize:sm?10:11,fontWeight:700,background:c.bg,color:c.t,whiteSpace:"nowrap"}}>
+      <span style={{width:5,height:5,borderRadius:"50%",background:c.d,flexShrink:0}}/>
+      {label}
+    </span>
+  );
+}
+function Stars({ n }) {
+  return <span><span style={{color:"#F59E0B"}}>{"★".repeat(Math.floor(n))}</span><span style={{color:"#CBD5E1"}}>{"★".repeat(5-Math.floor(n))}</span><span style={{color:"#94A3B8",fontSize:11}}> {n.toFixed(1)}</span></span>;
+}
+function Logo({ size=32 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#1D44AA"/>
+      <path d="M6 16L16 7L26 16V25C26 25.55 25.55 26 25 26H20V20H12V26H7C6.45 26 6 25.55 6 25V16Z" fill="white" fillOpacity=".92"/>
+      <path d="M20 12L23.5 16M20 12L24 12M20 12L20 16" stroke="#EAB308" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function Galeria({ fotos }) {
+  const [preview, setPreview] = useState(null);
+  if (!fotos || fotos.length === 0) return null;
+  return (
+    <>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+        {fotos.map((f,i) => (
+          <div key={i} onClick={() => setPreview(f)} style={{cursor:"pointer"}}>
+            <img src={f.dataUrl} alt="" style={{width:"100%",height:72,objectFit:"cover",borderRadius:8,border:"1.5px solid #E2E8F0"}}/>
+            <div style={{fontSize:9,color:"#94A3B8",textAlign:"center",marginTop:2}}>{f.subidaPor}</div>
+          </div>
+        ))}
+      </div>
+      {preview && (
+        <div onClick={() => setPreview(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:9999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16}}>
+          <img src={preview.dataUrl} alt="" style={{maxWidth:"100%",maxHeight:"75vh",borderRadius:12,objectFit:"contain"}}/>
+          <div style={{color:"#94A3B8",fontSize:12,marginTop:12}}>{preview.nombre} · {preview.subidaPor} · {fmtDate(preview.fecha)}</div>
+          <div style={{color:"rgba(255,255,255,.5)",fontSize:12,marginTop:6}}>Tocá para cerrar</div>
+        </div>
+      )}
+    </>
+  );
+}
+function PctBreakdown({ r }) {
+  if (r.quienPaga !== "Por Porcentaje") return null;
+  const base = Number(r.costoReal) || Number(r.costoEst) || 0;
+  return (
+    <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
+      {[["Inquilino",r.pctInq],["Propietario",r.pctProp],["Inmobiliaria",r.pctInmob]].map(([l,pct]) => (
+        <div key={l} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+          <span style={{fontSize:12,color:"#475569",width:90,flexShrink:0}}>{l}</span>
+          <div style={{flex:1,height:4,background:"#E2E8F0",borderRadius:4}}>
+            <div style={{height:4,width:`${pct}%`,background:"#1D44AA",borderRadius:4}}/>
+          </div>
+          <span style={{fontSize:12,fontWeight:700,color:"#0F1E3C",minWidth:30,textAlign:"right"}}>{pct}%</span>
+          {base > 0 && <span style={{fontSize:11,color:"#64748B",minWidth:64,textAlign:"right"}}>{fmt$(base*pct/100)}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── App principal ────────────────────────────────────────────────────────────
+function App() {
+  // ── Estado ──
+  const [tab,        setTab]        = useState("inicio");
+  const [reclamos,   setReclamos]   = useState([]);
+  const [proveedores, setProveedores] = useState(PROVEEDORES_INIT);
+  const [loading,    setLoading]    = useState(true);
+  const [showForm,   setShowForm]   = useState(false);
+  const [form,       setForm]       = useState(EF);
+  const [editId,     setEditId]     = useState(null);
+  const [detId,      setDetId]      = useState(null);
+  const [busqueda,   setBusqueda]   = useState("");
+  const [fEst,       setFEst]       = useState("Todos");
+  const [fPrio,      setFPrio]      = useState("Todos");
+  const [showFil,    setShowFil]    = useState(false);
+  const [portal,     setPortal]     = useState(null);
+  const [inqF,       setInqF]       = useState(EIF);
+  const [showProvForm,setShowProvForm] = useState(false);
+  const [provForm,    setProvForm]    = useState({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});
+  const [inqTab,      setInqTab]      = useState("nuevo");
+  const [inqOk,      setInqOk]      = useState(null);
+  const [toast,      setToast]      = useState(null);
+
+  // ── Carga inicial desde Supabase + suscripción real-time ──
+  useEffect(() => {
+    const init = async () => {
+      // Proveedores: si la tabla está vacía, sembramos los iniciales
+      const { data: provData } = await sb.from('proveedores').select('*');
+      if (provData && provData.length > 0) {
+        setProveedores(provData);
+      } else {
+        await sb.from('proveedores').upsert(PROVEEDORES_INIT);
+        setProveedores(PROVEEDORES_INIT);
+      }
+      // Reclamos
+      const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
+      if (recData) setReclamos(recData.map(fromRow));
+      setLoading(false);
+    };
+    init();
+
+    // Real-time: cualquier cambio en reclamos se refleja en todos los dispositivos
+    const channel = sb.channel('reclamos-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reclamos' }, payload => {
+        if (payload.eventType === 'INSERT') {
+          setReclamos(p => [fromRow(payload.new), ...p.filter(r => r.id !== payload.new.id)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setReclamos(p => p.map(r => r.id === payload.new.id ? fromRow(payload.new) : r));
+        } else if (payload.eventType === 'DELETE') {
+          setReclamos(p => p.filter(r => r.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+
+    return () => sb.removeChannel(channel);
+  }, []);
+
+  const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  // ── Stats ──
+  const st = useMemo(() => {
+    const ab = reclamos.filter(r => r.estado !== "Cerrado");
+    return {
+      total:  reclamos.length,
+      pend:   reclamos.filter(r => r.estado === "Pendiente").length,
+      proc:   reclamos.filter(r => r.estado === "En proceso").length,
+      alta:   ab.filter(r => r.prioridad === "Alta").length,
+      atras:  ab.filter(r => daysDiff(r.ultimaAct) >= 7).length,
+      cerr:   reclamos.filter(r => r.estado === "Cerrado").length,
+      costo:  reclamos.reduce((s,r) => s + (Number(r.costoReal) || Number(r.costoEst) || 0), 0),
+      altas:  ab.filter(r => r.prioridad === "Alta"),
+      stale:  ab.filter(r => daysDiff(r.ultimaAct) >= 7),
+      aprob:  ab.filter(r => r.aprobacion === "pendiente").length,
+    };
+  }, [reclamos]);
+
+  const fils = useMemo(() => reclamos.filter(r => {
+    if (fEst  !== "Todos" && r.estado    !== fEst)  return false;
+    if (fPrio !== "Todos" && r.prioridad !== fPrio) return false;
+    const q = busqueda.toLowerCase();
+    if (q && !`${r.id} ${r.propiedad} ${r.inquilino} ${r.descripcion}`.toLowerCase().includes(q)) return false;
+    return true;
+  }), [reclamos, fEst, fPrio, busqueda]);
+
+  const sortedProps = React.useMemo(()=>[...PROPS_DATA].sort((a,b)=>a.dir.localeCompare(b.dir,"es")), []);
+
+  // ── Helpers de datos ──
+  const nextId = () => {
+    const nums = reclamos.map(r => parseInt(r.id.split("-")[1]));
+    return `RC-${String(Math.max(...nums, 0) + 1).padStart(3,"0")}`;
+  };
+  const nextProvId = () => { const nums = proveedores.map(p=>parseInt(p.id.replace(/\D/g,""))||0); return "PR"+String(Math.max(...nums,0)+1).padStart(3,"0"); };
+  const addProv = async () => {
+    if(!provForm.nombre||!provForm.rubro){alert("Nombre y especialidad son obligatorios");return;}
+    const newProv = {id:nextProvId(),...provForm,cal:5};
+    setProveedores(ps=>[...ps,newProv]); // optimistic
+    await sb.from('proveedores').insert(newProv);
+    setProvForm({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});
+    setShowProvForm(false); showToast("✅ Proveedor agregado");
+  };
+  const pSum = f => Number(f.pctInq) + Number(f.pctProp) + Number(f.pctInmob);
+  const addFotosR = (id, por, files) => {
+    Array.from(files).forEach(file => readFile(file, url => {
+      const newFoto = { dataUrl:url, nombre:file.name, subidaPor:por, fecha:today() };
+      setReclamos(p => {
+        const updated = p.map(r => r.id === id
+          ? { ...r, ultimaAct:today(), fotos:[...(r.fotos||[]), newFoto] }
+          : r);
+        const updR = updated.find(r => r.id === id);
+        if (updR) sb.from('reclamos').update({ fotos:updR.fotos, ultima_act:today() }).eq('id', id);
+        return updated;
+      });
+    }));
+  };
+  const addFotosF = (setter, por, files) => {
+    Array.from(files).forEach(file => readFile(file, url => {
+      setter(f => ({ ...f, fotos:[...f.fotos, { dataUrl:url, nombre:file.name, subidaPor:por, fecha:today() }] }));
+    }));
+  };
+
+  // ── Handlers CRUD ──
+  const submit = async () => {
+    if (!form.propiedad || !form.inquilino || !form.descripcion) { alert("Completá los campos obligatorios (*)"); return; }
+    if (form.quienPaga === "Por Porcentaje" && pSum(form) !== 100) { alert(`Los porcentajes deben sumar 100%. Ahora suman ${pSum(form)}%.`); return; }
+    const t = today();
+    const base = { ...form, costoEst:Number(form.costoEst)||0, costoReal:Number(form.costoReal)||0, pctInq:Number(form.pctInq)||0, pctProp:Number(form.pctProp)||0, pctInmob:Number(form.pctInmob)||0 };
+    if (editId) {
+      const orig = reclamos.find(r => r.id === editId);
+      const updated = { ...orig, ...base, ultimaAct:t, provAceptado:base.proveedor&&base.proveedor!==orig?.proveedor?"pendiente":orig?.provAceptado };
+      setReclamos(p => p.map(r => r.id === editId ? updated : r)); // optimistic
+      await sb.from('reclamos').update(toRow(updated)).eq('id', editId);
+      setEditId(null); showToast("✅ Reclamo actualizado");
+    } else {
+      const newRec = { id:nextId(), fecha:t, ultimaAct:t, fotos:[], aprobacion:null, provAceptado:base.proveedor?"pendiente":null, mensajes:[], ...base };
+      setReclamos(p => [newRec, ...p]); // optimistic
+      await sb.from('reclamos').insert(toRow(newRec));
+      showToast("✅ Reclamo creado");
+    }
+    setForm(EF); setShowForm(false);
+  };
+  const cerrar = async id => {
+    setReclamos(p => p.map(r => r.id === id ? { ...r, estado:"Cerrado", ultimaAct:today() } : r)); // optimistic
+    await sb.from('reclamos').update({ estado:'Cerrado', ultima_act:today() }).eq('id', id);
+    setDetId(null); showToast("✅ Reclamo cerrado");
+  };
+  const aprobar = async (id, dec) => {
+    setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec } : r)); // optimistic
+    await sb.from('reclamos').update({ aprobacion:dec }).eq('id', id);
+    showToast(dec === "aprobada" ? "✅ Aprobado" : "❌ Rechazado");
+  };
+  const solAprob = async id => {
+    setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:"pendiente" } : r)); // optimistic
+    await sb.from('reclamos').update({ aprobacion:'pendiente' }).eq('id', id);
+    setDetId(null); showToast("📩 Aprobación solicitada");
+  };
+  const abrirEdit = r => {
+    setDetId(null);
+    setForm({ propiedad:r.propiedad, inquilino:r.inquilino, email:r.email||"", telInq:r.telInq||"", sector:r.sector, prioridad:r.prioridad, estado:r.estado, proveedor:r.proveedor||"", costoEst:r.costoEst||"", costoReal:r.costoReal||"", quienPaga:r.quienPaga, pctInq:r.pctInq||34, pctProp:r.pctProp||33, pctInmob:r.pctInmob||33, descripcion:r.descripcion, notas:r.notas, fotos:r.fotos||[] });
+    setEditId(r.id); setShowForm(true);
+  };
+  const exportCSV = () => {
+    const cols = ["ID","Fecha","Propiedad","Inquilino","Email","Sector","Prioridad","Estado","Proveedor","CostoEst","CostoReal","QuienPaga","PctInq","PctProp","PctInmob","Descripcion","Notas","Aprobacion"];
+    const rows = reclamos.map(r => [r.id,r.fecha,r.propiedad,r.inquilino,r.email||"",r.sector,r.prioridad,r.estado,r.proveedor||"",r.costoEst,r.costoReal,r.quienPaga,r.pctInq,r.pctProp,r.pctInmob,`"${r.descripcion}"`,`"${r.notas||""}"`,r.aprobacion||""].join(","));
+    const csv  = [cols.join(","), ...rows].join("\n");
+    const blob = new Blob(["﻿"+csv], { type:"text/csv;charset=utf-8;" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `houscare_${today()}.csv`; a.click();
+    showToast("📊 CSV exportado");
+  };
+
+  const det = reclamos.find(r => r.id === detId);
+
+  // ── Estilos comunes ──
+  const INP = { width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #E2E8F0", fontSize:13, outline:"none", boxSizing:"border-box", background:"#F8FAFC", color:"#0F1E3C", fontFamily:"inherit" };
+  const LBL = { fontSize:11, fontWeight:700, color:"#64748B", marginBottom:4, display:"block", letterSpacing:.8, textTransform:"uppercase" };
+  const BB  = { background:"#1D44AA", color:"#fff", border:"none", borderRadius:12, padding:"13px 0", fontWeight:700, fontSize:15, cursor:"pointer", width:"100%" };
+  const BG  = { background:"#F1F5F9", color:"#475569", border:"none", borderRadius:12, padding:"12px 0", fontWeight:600, fontSize:14, cursor:"pointer", width:"100%" };
+  const CARD = { background:"#fff", borderRadius:14, padding:"14px 16px", boxShadow:"0 1px 6px rgba(0,0,0,.07)", marginBottom:10 };
+  const PH  = { background:"#0F1E3C", padding:"14px 16px" };
+
+  // ── Pantalla de carga ──
+  if (loading) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#F0F4F8",gap:16}}>
+      <Logo size={52}/>
+      <div style={{fontSize:20,fontWeight:900,color:"#0F1E3C"}}>Houscare</div>
+      <div style={{width:36,height:36,border:"4px solid #E2E8F0",borderTopColor:"#1D44AA",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <div style={{fontSize:13,color:"#64748B"}}>Cargando datos…</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════
+  //  PORTAL INQUILINO
+  // ════════════════════════════════════════════════════════
+  if (portal?.type === "inq") {
+    const dir = portal.dir;
+    const sub = async () => {
+      if (!inqF.nombre || !inqF.descripcion) { alert("Completá nombre y descripción"); return; }
+      const newRec = { id:nextId(), fecha:today(), ultimaAct:today(), propiedad:dir, inquilino:inqF.nombre, email:inqF.email||"", telInq:"", sector:inqF.sector, prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:0, costoReal:0, quienPaga:"Sin definir", pctInq:0, pctProp:0, pctInmob:0, descripcion:inqF.descripcion, notas:"", fotos:inqF.fotos, aprobacion:null, provAceptado:null, mensajes:[] };
+      setReclamos(p => [newRec, ...p]); // optimistic
+      await sb.from('reclamos').insert(toRow(newRec));
+      setInqOk(newRec.id); setInqF(EIF);
+    };
+    if (inqOk) return (
+      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+        <div style={PH}><div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div></div>
+        <div style={{padding:32,textAlign:"center"}}>
+          <div style={{fontSize:64,marginBottom:16}}>✅</div>
+          <h2 style={{margin:"0 0 8px",color:"#065F46",fontWeight:900,fontSize:22}}>¡Reclamo enviado!</h2>
+          <p style={{color:"#475569",fontSize:14,marginBottom:20}}>Tu reclamo fue registrado. La inmobiliaria se va a contactar pronto.</p>
+          <div style={{background:"#D1FAE5",borderRadius:14,padding:20,marginBottom:24}}>
+            <div style={{fontSize:12,color:"#065F46",fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Número de reclamo</div>
+            <div style={{fontSize:36,fontWeight:900,color:"#065F46"}}>{inqOk}</div>
+          </div>
+          <p style={{fontSize:13,color:"#94A3B8",marginBottom:24}}>Guardá este número para hacer seguimiento.</p>
+          <button onClick={() => setInqOk(null)} style={BB}>Reportar otro problema</button>
+          <button onClick={() => { setPortal(null); setInqOk(null); }} style={{...BG,marginTop:10}}>← Salir del portal</button>
+        </div>
+      </div>
+    );
+    const recProp = reclamos.filter(r=>r.propiedad===dir);
+    return (
+      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+        <div style={PH}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div>
+            <button onClick={() => {setPortal(null);setInqTab("nuevo");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer"}}>← Volver</button>
+          </div>
+          <div style={{display:"flex",gap:2,marginTop:10}}>
+            {[["nuevo","➕ Nuevo reclamo"],["seguimiento","📋 Mis reclamos"+( recProp.length>0?" ("+recProp.length+")":"")]].map(([id,l])=>(
+              <button key={id} onClick={()=>setInqTab(id)} style={{flex:1,background:inqTab===id?"#fff":"transparent",color:inqTab===id?"#0F1E3C":"rgba(255,255,255,.7)",border:"none",borderRadius:"8px 8px 0 0",padding:"7px 4px",fontWeight:inqTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {inqTab==="seguimiento"&&(
+          <div style={{padding:"12px 16px 60px"}}>
+            {recProp.length===0&&<div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48,marginBottom:10}}>📋</div><div>No hay reclamos registrados para esta propiedad.</div></div>}
+            {recProp.map(r=>(
+              <div key={r.id} style={{...CARD,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <span style={{fontSize:12,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span>
+                  <Badge label={r.estado} sm/>
+                </div>
+                <div style={{fontSize:13,fontWeight:600,color:"#0F1E3C",marginBottom:2}}>{r.sector}</div>
+                <div style={{fontSize:12,color:"#64748B",marginBottom:6}}>{r.descripcion.slice(0,80)}{r.descripcion.length>80?"…":""}</div>
+                <div style={{fontSize:11,color:"#94A3B8"}}>Fecha: {fmtDate(r.fecha)} · Última actualización: {fmtDate(r.ultimaAct)}</div>
+                {r.proveedor&&<div style={{fontSize:12,color:"#475569",marginTop:4}}>🔧 Proveedor: <b>{r.proveedor}</b></div>}
+                {r.aprobacion==="pendiente"&&<div style={{background:"#FEF3C7",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#92400E",fontWeight:600,marginTop:8}}>⏳ Aguardando aprobación del propietario</div>}
+                {r.aprobacion==="aprobada"&&<div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginTop:8}}>✅ Reparación aprobada</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        {inqTab==="nuevo"&&<div style={{padding:"16px 16px 60px"}}>
+          <div style={{background:"#EFF6FF",borderRadius:12,padding:"12px 14px",marginBottom:14,fontSize:13,color:"#1D44AA",fontWeight:600}}>Reportá un problema en tu propiedad. Te avisamos cuando esté resuelto.</div>
+          <div style={CARD}>
+            <div style={{marginBottom:14}}><label style={LBL}>Tu nombre *</label><input placeholder="Apellido, Nombre" value={inqF.nombre} onChange={e=>setInqF(f=>({...f,nombre:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Email</label><input type="email" placeholder="tu@email.com" value={inqF.email} onChange={e=>setInqF(f=>({...f,email:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Tipo de problema</label><select value={inqF.sector} onChange={e=>setInqF(f=>({...f,sector:e.target.value}))} style={INP}>{SECTORES.map(o=><option key={o}>{o}</option>)}</select></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Descripción *</label><textarea placeholder="Describí el problema con el mayor detalle posible..." value={inqF.descripcion} onChange={e=>setInqF(f=>({...f,descripcion:e.target.value}))} style={{...INP,height:100,resize:"none"}}/></div>
+            <div style={{marginBottom:20}}>
+              <label style={LBL}>📷 Fotos del problema</label>
+              <input type="file" id="inq-file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotosF(setInqF,"Inquilino",e.target.files);e.target.value="";}}/>
+              <label htmlFor="inq-file" style={{display:"block",background:"#F8FAFC",border:"1.5px dashed #CBD5E1",borderRadius:10,padding:"14px",cursor:"pointer",color:"#64748B",fontWeight:600,fontSize:13,textAlign:"center",boxSizing:"border-box"}}>📷 Agregar fotos</label>
+              {inqF.fotos.length > 0 && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:8}}>
+                  {inqF.fotos.map((f,i) => (
+                    <div key={i} style={{position:"relative"}}>
+                      <img src={f.dataUrl} alt="" style={{width:"100%",height:80,objectFit:"cover",borderRadius:8,border:"1.5px solid #E2E8F0"}}/>
+                      <button onClick={()=>setInqF(fr=>({...fr,fotos:fr.fotos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:3,right:3,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:12}}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={sub} style={BB}>Enviar reclamo</button>
+          </div>
+        </div>}
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  PORTAL PROVEEDOR
+  // ════════════════════════════════════════════════════════
+  if (portal?.type === "prov") {
+    const prov = proveedores.find(p => p.id === portal.id);
+    const mis  = reclamos.filter(r => r.proveedor === prov?.nombre && r.estado !== "Cerrado");
+    return (
+      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+        <div style={PH}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Proveedor</div><div style={{color:"#94A3B8",fontSize:11}}>{prov?.nombre}</div></div></div>
+            <button onClick={()=>setPortal(null)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer"}}>← Volver</button>
+          </div>
+        </div>
+        <div style={{padding:"12px 16px 60px"}}>
+          <div style={{...CARD,background:"#EFF6FF",marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#1D44AA"}}>🔧 {prov?.rubro} · {mis.length} trabajo{mis.length!==1?"s":""} asignado{mis.length!==1?"s":""}</div>
+            {prov?.tel&&<div style={{fontSize:12,color:"#3B82F6",marginTop:4}}>📞 {prov.tel} · 📍 {prov?.zona}</div>}
+          </div>
+          {mis.length === 0 && <div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>Sin trabajos pendientes</div></div>}
+          {mis.map(r => (
+            <div key={r.id} style={{...CARD,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span><Badge label={r.estado} sm/></div>
+              <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+              <div style={{fontSize:12,color:"#64748B",marginBottom:6}}>{r.sector} · Inquilino: {r.inquilino}</div>
+              <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
+              {r.fotos && r.fotos.length > 0 && <div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Fotos del reclamo</div><Galeria fotos={r.fotos}/></div>}
+              {r.provAceptado==="pendiente"&&(
+                <div style={{background:"#FEF3C7",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#92400E",marginBottom:8}}>⏳ ¿Podés tomar este trabajo?</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={async()=>{const upd={provAceptado:"aceptado",estado:"En proceso",ultima_act:today()};setReclamos(p=>p.map(x=>x.id===r.id?{...x,provAceptado:"aceptado",estado:"En proceso",ultimaAct:today()}:x));await sb.from('reclamos').update(upd).eq('id',r.id);showToast("✅ Trabajo aceptado");}} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>✅ Aceptar</button>
+                    <button onClick={async()=>{const upd={provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultima_act:today()};setReclamos(p=>p.map(x=>x.id===r.id?{...x,provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultimaAct:today()}:x));await sb.from('reclamos').update(upd).eq('id',r.id);showToast("❌ Trabajo rechazado");}} style={{flex:1,background:"#EF4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>❌ Rechazar</button>
+                  </div>
+                </div>
+              )}
+              {r.provAceptado==="aceptado"&&(
+                <div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginBottom:8}}>✅ Trabajo aceptado — podés coordinar con el inquilino</div>
+              )}
+              <div style={{display:"flex",gap:8}}>
+                <input type="file" accept="image/*" multiple id={`pf-${r.id}`} style={{display:"none"}} onChange={e=>{addFotosR(r.id,"Proveedor",e.target.files);e.target.value="";showToast("📷 Foto subida");}}/>
+                <label htmlFor={`pf-${r.id}`} style={{flex:1,background:"#F1F5F9",color:"#475569",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",display:"block"}}>📷 Subir fotos</label>
+                {r.estado !== "Resuelto" && r.estado !== "Pendiente" && (
+                  <button onClick={async()=>{setReclamos(p=>p.map(x=>x.id===r.id?{...x,estado:"Resuelto",ultimaAct:today()}:x));await sb.from('reclamos').update({estado:'Resuelto',ultima_act:today()}).eq('id',r.id);showToast("✅ Marcado como terminado");}} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>✅ Terminado</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  PORTAL PROPIETARIO
+  // ════════════════════════════════════════════════════════
+  if (portal?.type === "own") {
+    const owner = OWNERS.find(o => o.id === portal.id);
+    const dirs  = PROPS_DATA.filter(p => p.ownerId === portal.id).map(p => p.dir);
+    const mis   = reclamos.filter(r => dirs.includes(r.propiedad));
+    const pend  = mis.filter(r => r.aprobacion === "pendiente");
+    return (
+      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+        <div style={PH}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Propietario</div><div style={{color:"#94A3B8",fontSize:11}}>{owner?.nombre}</div></div></div>
+            <button onClick={()=>setPortal(null)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer"}}>← Volver</button>
+          </div>
+        </div>
+        <div style={{padding:"12px 16px 60px"}}>
+          <div style={{...CARD,background:"#EFF6FF",marginBottom:6}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#1D44AA",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Tus propiedades</div>
+            {dirs.map(d => <div key={d} style={{fontSize:13,color:"#1E40AF",marginBottom:2}}>🏠 {d}</div>)}
+          </div>
+          {pend.length > 0 && <div style={{background:"#FEF3C7",borderLeft:"4px solid #F59E0B",padding:"10px 14px",borderRadius:10,marginBottom:12,fontSize:13,color:"#92400E",fontWeight:600}}>⏳ Tenés {pend.length} reclamo{pend.length>1?"s":""} esperando tu aprobación</div>}
+          {mis.length === 0 && <div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48}}>✅</div><div style={{marginTop:10}}>Sin reclamos en tus propiedades</div></div>}
+          {mis.map(r => (
+            <div key={r.id} style={{...CARD,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span><Badge label={r.estado} sm/></div>
+              <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+              <div style={{fontSize:12,color:"#64748B",marginBottom:4}}>{r.sector} · {r.inquilino}</div>
+              <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
+              {r.costoEst > 0 && (
+                <div style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Detalle del costo</div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:13,color:"#475569"}}>Costo estimado</span><span style={{fontSize:13,fontWeight:700}}>{fmt$(r.costoEst)}</span></div>
+                  {r.costoReal > 0 && <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:13,color:"#475569"}}>Costo real</span><span style={{fontSize:13,fontWeight:700}}>{fmt$(r.costoReal)}</span></div>}
+                  <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:13,color:"#475569"}}>¿Quién paga?</span><span style={{fontSize:13,fontWeight:700}}>{r.quienPaga}</span></div>
+                  {r.quienPaga === "Por Porcentaje" && (
+                    <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
+                      {[["Propietario (vos)",r.pctProp],["Inquilino",r.pctInq],["Inmobiliaria",r.pctInmob]].map(([l,pct]) => (
+                        <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                          <span style={{fontSize:12,color:"#475569"}}>{l}</span>
+                          <span style={{fontSize:12,fontWeight:700,color:l.includes("vos")?"#991B1B":"#0F1E3C"}}>{pct}% → {fmt$(r.costoEst*pct/100)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {r.quienPaga === "Propietario" && <div style={{marginTop:6,fontSize:12,color:"#991B1B",fontWeight:600}}>⚠️ Este costo corre por tu cuenta</div>}
+                </div>
+              )}
+              {r.fotos && r.fotos.length > 0 && <div style={{marginBottom:10}}><Galeria fotos={r.fotos}/></div>}
+              {r.aprobacion === "pendiente" && r.costoEst > 0 && (
+                <div>
+                  <div style={{background:"#FEF3C7",borderRadius:10,padding:"10px 12px",marginBottom:8,fontSize:13,color:"#92400E",fontWeight:600}}>⏳ Se requiere tu aprobación para continuar con la reparación</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>aprobar(r.id,"aprobada")} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✅ Aprobar</button>
+                    <button onClick={()=>aprobar(r.id,"rechazada")} style={{flex:1,background:"#EF4444",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer"}}>❌ Rechazar</button>
+                  </div>
+                </div>
+              )}
+              {r.aprobacion === "aprobada"  && <div style={{background:"#D1FAE5",borderRadius:10,padding:"8px 12px",textAlign:"center",fontSize:13,color:"#065F46",fontWeight:700}}>✅ Aprobado — reparación autorizada</div>}
+              {r.aprobacion === "rechazada" && <div style={{background:"#FEE2E2",borderRadius:10,padding:"8px 12px",textAlign:"center",fontSize:13,color:"#991B1B",fontWeight:700}}>❌ Rechazado — se notificó a la inmobiliaria</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  ADMIN
+  // ════════════════════════════════════════════════════════
+  const NAV = [{id:"inicio",l:"Inicio"},{id:"reclamos",l:"Reclamos"},{id:"proveedores",l:"Proveedores"},{id:"portales",l:"Portales"}];
+
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh",position:"relative"}}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0F1E3C",color:"#fff",padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,.25)"}}>
+          {toast}
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{background:"#0F1E3C",padding:"14px 16px",position:"sticky",top:0,zIndex:50}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <Logo/>
+            <div>
+              <div style={{color:"#fff",fontWeight:800,fontSize:15,lineHeight:1.2}}>Daniel Vega</div>
+              <div style={{color:"#94A3B8",fontSize:11}}>Inversiones Inmobiliarias</div>
+            </div>
+          </div>
+          <button onClick={()=>{if(tab==="proveedores"){setProvForm({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});setShowProvForm(true);}else{setForm(EF);setEditId(null);setShowForm(true);}}} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
+        </div>
+        <div style={{display:"flex",gap:2,marginTop:12}}>
+          {NAV.map(n => (
+            <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,background:tab===n.id?"#fff":"transparent",color:tab===n.id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 2px",fontWeight:tab===n.id?800:600,fontSize:11,cursor:"pointer"}}>
+              {n.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── INICIO ── */}
+      {tab === "inicio" && (
+        <div style={{paddingBottom:24}}>
+          {st.altas.length > 0  && <div style={{background:"#FEE2E2",borderLeft:"4px solid #EF4444",padding:"10px 16px",marginBottom:5,display:"flex",alignItems:"center",gap:8}}><span>🔴</span><span style={{fontSize:13,color:"#991B1B",fontWeight:600}}><b>{st.altas.length}</b> reclamo{st.altas.length>1?"s":""} de prioridad <b>Alta</b> sin cerrar</span></div>}
+          {st.stale.length > 0  && <div style={{background:"#FEF3C7",borderLeft:"4px solid #F59E0B",padding:"10px 16px",marginBottom:5,display:"flex",alignItems:"center",gap:8}}><span>⚠️</span><span style={{fontSize:13,color:"#92400E",fontWeight:600}}><b>{st.stale.length}</b> reclamo{st.stale.length>1?"s":""} sin actualizar hace <b>+7 días</b></span></div>}
+          {st.aprob > 0         && <div style={{background:"#EFF6FF",borderLeft:"4px solid #3B82F6",padding:"10px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}><span>⏳</span><span style={{fontSize:13,color:"#1D44AA",fontWeight:600}}><b>{st.aprob}</b> reclamo{st.aprob>1?"s":""} esperando aprobación del propietario</span></div>}
+          <div style={{padding:"0 16px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
+              {[{l:"Total",v:st.total,c:"#3B82F6"},{l:"Pendientes",v:st.pend,c:"#F59E0B"},{l:"En proceso",v:st.proc,c:"#10B981"},{l:"Alta prio",v:st.alta,c:"#EF4444"},{l:"Atrasados",v:st.atras,c:"#F97316"},{l:"Cerrados",v:st.cerr,c:"#6B7280"}].map(k => (
+                <div key={k.l} style={{background:"#fff",borderRadius:12,padding:"12px 8px",textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+                  <div style={{fontSize:22,fontWeight:900,color:k.c,lineHeight:1.1}}>{k.v}</div>
+                  <div style={{fontSize:10,color:"#94A3B8",fontWeight:600,marginTop:2}}>{k.l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{...CARD,marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>💰 Costo total (estimado + real)</div>
+              <div style={{fontSize:28,fontWeight:900,color:"#0F1E3C"}}>${st.costo.toLocaleString("es-AR")}</div>
+            </div>
+            <div style={{background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:"0 1px 6px rgba(0,0,0,.07)"}}>
+              <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",fontSize:12,fontWeight:800,color:"#94A3B8",letterSpacing:1.2,textTransform:"uppercase"}}>Acciones rápidas</div>
+              {[
+                {i:"➕", l:"Nuevo reclamo",        a:()=>{setForm(EF);setEditId(null);setShowForm(true);}},
+                {i:"📊", l:"Exportar a Excel (CSV)",a:exportCSV},
+                {i:"📋", l:"Ver todos los reclamos",a:()=>setTab("reclamos")},
+                {i:"🔧", l:"Proveedores",           a:()=>setTab("proveedores")},
+                {i:"🔗", l:"Portales de acceso",    a:()=>setTab("portales")},
+              ].map((a,i,arr) => (
+                <button key={a.l} onClick={a.a} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",width:"100%",background:"none",border:"none",borderBottom:i<arr.length-1?"1px solid #F8FAFC":"none",cursor:"pointer",textAlign:"left"}}>
+                  <span style={{fontSize:18,width:28,flexShrink:0}}>{a.i}</span>
+                  <span style={{fontSize:14,fontWeight:600,color:"#1a2035"}}>{a.l}</span>
+                  <span style={{marginLeft:"auto",color:"#CBD5E1",fontSize:18}}>›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── RECLAMOS ── */}
+      {tab === "reclamos" && (
+        <div style={{padding:"0 16px 24px"}}>
+          <div style={{display:"flex",gap:8,marginBottom:8}}>
+            <input placeholder="🔍 Buscar por ID, propiedad, inquilino..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...INP,flex:1}}/>
+            <button onClick={()=>setShowFil(f=>!f)} style={{background:showFil?"#1D44AA":"#fff",color:showFil?"#fff":"#475569",border:"1.5px solid #E2E8F0",borderRadius:10,padding:"0 14px",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>⚙️ Filtros</button>
+          </div>
+          {showFil && (
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <select value={fEst}  onChange={e=>setFEst(e.target.value)}  style={{...INP,flex:1}}>{["Todos",...ESTADOS].map(o=><option key={o}>{o}</option>)}</select>
+              <select value={fPrio} onChange={e=>setFPrio(e.target.value)} style={{...INP,flex:1}}>{["Todos",...PRIORIDADES].map(o=><option key={o}>{o}</option>)}</select>
+            </div>
+          )}
+          <div style={{fontSize:12,color:"#94A3B8",fontWeight:600,marginBottom:10}}>{fils.length} resultado{fils.length!==1?"s":""}</div>
+          {fils.map(r => (
+            <div key={r.id} onClick={()=>setDetId(r.id)} style={{...CARD,cursor:"pointer",borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span>
+                  <span style={{fontSize:11,color:"#94A3B8"}}>{daysDiff(r.fecha)}d</span>
+                  {r.aprobacion==="pendiente" && <span style={{fontSize:10,color:"#92400E",background:"#FEF3C7",padding:"1px 6px",borderRadius:6,fontWeight:700}}>⏳ Aprob.</span>}
+                </div>
+                <Badge label={r.estado} sm/>
+              </div>
+              <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+              <div style={{fontSize:12,color:"#64748B",marginBottom:4}}>{r.inquilino} · {r.sector}</div>
+              <div style={{fontSize:12,color:"#475569",marginBottom:8}}>{r.descripcion.slice(0,70)}{r.descripcion.length>70?"…":""}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
+                <Badge label={r.prioridad} type="prioridad" sm/>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {(r.costoEst>0||r.costoReal>0) && <span style={{fontSize:12,fontWeight:700,color:"#059669"}}>{fmt$(r.costoReal||r.costoEst)}</span>}
+                  {r.fotos?.length>0 && <span style={{fontSize:11,color:"#64748B"}}>📷 {r.fotos.length}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+          {fils.length === 0 && <div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:40,marginBottom:10}}>🔍</div><div>No hay reclamos que coincidan</div></div>}
+        </div>
+      )}
+
+      {/* ── PROVEEDORES ── */}
+      {tab === "proveedores" && (
+        <div style={{padding:"0 16px 24px"}}>
+          {proveedores.map(p => {
+            const act = reclamos.filter(r => r.proveedor === p.nombre && r.estado !== "Cerrado").length;
+            const tot = reclamos.filter(r => r.proveedor === p.nombre).length;
+            return (
+              <div key={p.id} style={CARD}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                  <div><div style={{fontWeight:800,fontSize:15,color:"#0F1E3C",marginBottom:4}}>{p.nombre}</div><span style={{fontSize:11,fontWeight:700,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{p.rubro}</span></div>
+                  <Stars n={p.cal}/>
+                </div>
+                <div style={{fontSize:13,color:"#475569",marginBottom:3}}>📞 {p.tel}</div>
+                <div style={{fontSize:13,color:"#475569",marginBottom:12}}>✉️ {p.email}</div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,flex:2,fontSize:13,padding:"10px 0"}}>Ver portal</button>
+                  {p.tel&&<a href={`https://wa.me/${p.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"10px 0",fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                </div>
+                <div style={{fontSize:11,color:"#94A3B8"}}>{tot} reclamo{tot!==1?"s":""} · <span style={{color:act>0?"#10B981":"#94A3B8"}}>{act} activo{act!==1?"s":""}</span></div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── PORTALES ── */}
+      {tab === "portales" && (
+        <div style={{padding:"0 16px 24px"}}>
+          <div style={{background:"#EFF6FF",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#1D44AA",marginBottom:4}}>🔗 Portales de acceso</div>
+            <div style={{fontSize:13,color:"#3B82F6",lineHeight:1.5}}>En producción, cada botón "Copiar link" generará una URL única para compartir.</div>
+          </div>
+          {/* Portal Inquilino */}
+          <div style={CARD}>
+            <div style={{fontSize:12,fontWeight:800,color:"#0F1E3C",marginBottom:14,textTransform:"uppercase",letterSpacing:.8}}>🏠 Portal Inquilino</div>
+            {PROPS_DATA.map((prop,i) => (
+              <div key={prop.id} style={{paddingBottom:12,marginBottom:12,borderBottom:i<PROPS_DATA.length-1?"1px solid #F1F5F9":"none"}}>
+                <div style={{fontSize:13,fontWeight:600,color:"#1a2035",marginBottom:8}}>{prop.dir}</div>
+                <button onClick={()=>setPortal({type:"inq",dir:prop.dir})} style={{...BB,fontSize:12,padding:"9px 0"}}>Entrar al portal →</button>
+              </div>
+            ))}
+          </div>
+          {/* Portal Propietario */}
+          <div style={CARD}>
+            <div style={{fontSize:12,fontWeight:800,color:"#0F1E3C",marginBottom:14,textTransform:"uppercase",letterSpacing:.8}}>👤 Portal Propietario</div>
+            {OWNERS.map((ow,i) => {
+              const dirs = PROPS_DATA.filter(p=>p.ownerId===ow.id).map(p=>p.dir);
+              const pa   = reclamos.filter(r=>dirs.includes(r.propiedad)&&r.aprobacion==="pendiente").length;
+              return (
+                <div key={ow.id} style={{paddingBottom:12,marginBottom:12,borderBottom:i<OWNERS.length-1?"1px solid #F1F5F9":"none"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#1a2035"}}>{ow.nombre}</div>
+                    {pa > 0 && <span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ {pa} pendiente{pa>1?"s":""}</span>}
+                  </div>
+                  <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>{dirs.length} propiedad{dirs.length>1?"es":""} · {ow.email}</div>
+                  <button onClick={()=>setPortal({type:"own",id:ow.id})} style={{...BB,fontSize:12,padding:"9px 0"}}>Entrar al portal →</button>
+                </div>
+              );
+            })}
+          </div>
+          {/* Portal Proveedor */}
+          <div style={CARD}>
+            <div style={{fontSize:12,fontWeight:800,color:"#0F1E3C",marginBottom:14,textTransform:"uppercase",letterSpacing:.8}}>🔧 Portal Proveedor</div>
+            {proveedores.map((p,i) => (
+              <div key={p.id} style={{paddingBottom:12,marginBottom:12,borderBottom:i<proveedores.length-1?"1px solid #F1F5F9":"none"}}>
+                <div style={{fontSize:13,fontWeight:600,color:"#1a2035",marginBottom:2}}>{p.nombre}</div>
+                <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>{p.rubro}</div>
+                <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,fontSize:12,padding:"9px 0"}}>Entrar al portal →</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: NUEVO / EDITAR RECLAMO ── */}
+      {showForm && (
+        <div onClick={()=>setShowForm(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",width:"100%",maxHeight:"92vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <h2 style={{margin:0,fontSize:17,fontWeight:900,color:"#0F1E3C"}}>{editId?"Editar reclamo":"Nuevo reclamo"}</h2>
+              <button onClick={()=>setShowForm(false)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:18,color:"#64748B"}}>×</button>
+            </div>
+            <div style={{marginBottom:14}}><label style={LBL}>Propiedad *</label><select value={form.propiedad} onChange={e=>{const prop=PROPS_DATA.find(p=>p.dir===e.target.value);setForm(p=>({...p,propiedad:e.target.value,inquilino:prop?.inquilino||"",email:prop?.emailInq||"",telInq:prop?.telInq||""}));}} style={INP}><option value="">— Seleccioná —</option>{sortedProps.map(p=><option key={p.id}>{p.dir}</option>)}</select></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Inquilino *</label><input placeholder="Apellido, Nombre" value={form.inquilino} onChange={e=>setForm(p=>({...p,inquilino:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Teléfono inquilino</label><input placeholder="Sin teléfono" value={form.telInq||""} onChange={e=>setForm(p=>({...p,telInq:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Email</label><input type="email" placeholder="correo@mail.com" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))} style={INP}/></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+              <div><label style={LBL}>Sector</label><select value={form.sector}    onChange={e=>setForm(p=>({...p,sector:e.target.value}))}    style={INP}>{SECTORES.map(o=><option key={o}>{o}</option>)}</select></div>
+              <div><label style={LBL}>Prioridad</label><select value={form.prioridad} onChange={e=>setForm(p=>({...p,prioridad:e.target.value}))} style={INP}>{PRIORIDADES.map(o=><option key={o}>{o}</option>)}</select></div>
+            </div>
+            <div style={{marginBottom:14}}><label style={LBL}>Estado</label><select value={form.estado} onChange={e=>setForm(p=>({...p,estado:e.target.value}))} style={INP}>{ESTADOS.map(o=><option key={o}>{o}</option>)}</select></div>
+            {(()=>{
+              const sKey=form.sector.toLowerCase().split(/[/\s]/)[0];
+              const mp=proveedores.filter(p=>p.rubro.toLowerCase().includes(sKey)||sKey.includes(p.rubro.toLowerCase().split(/[/\s]/)[0]));
+              const op=proveedores.filter(p=>!mp.includes(p));
+              return <div style={{marginBottom:14}}>
+                <label style={LBL}>Proveedor{mp.length>0&&<span style={{fontSize:10,color:"#059669",fontWeight:700,marginLeft:6}}>● {mp.length} para "{form.sector}"</span>}</label>
+                <select value={form.proveedor} onChange={e=>setForm(p=>({...p,proveedor:e.target.value}))} style={INP}>
+                  <option value="">— Sin asignar —</option>
+                  {mp.length>0&&<optgroup label={`✓ Para ${form.sector}`}>{mp.map(p=><option key={p.id}>{p.nombre}</option>)}</optgroup>}
+                  {op.length>0&&<optgroup label="Otros proveedores">{op.map(p=><option key={p.id}>{p.nombre}</option>)}</optgroup>}
+                </select>
+              </div>;
+            })()}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+              <div><label style={LBL}>Costo estimado ($)</label><input type="number" placeholder="0" value={form.costoEst}  onChange={e=>setForm(p=>({...p,costoEst:e.target.value}))}  style={INP}/></div>
+              <div><label style={LBL}>Costo real ($)</label>    <input type="number" placeholder="0" value={form.costoReal} onChange={e=>setForm(p=>({...p,costoReal:e.target.value}))} style={INP}/></div>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={LBL}>¿Quién paga?</label>
+              <select value={form.quienPaga} onChange={e=>setForm(p=>({...p,quienPaga:e.target.value}))} style={INP}>{QUIEN_PAGA.map(o=><option key={o}>{o}</option>)}</select>
+              {form.quienPaga === "Por Porcentaje" && (
+                <div style={{background:"#F8FAFC",borderRadius:10,padding:"12px",marginTop:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Distribución del costo</div>
+                  {[["Inquilino","pctInq"],["Propietario","pctProp"],["Inmobiliaria","pctInmob"]].map(([l,k]) => (
+                    <div key={k} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                      <span style={{fontSize:13,color:"#475569",width:88,flexShrink:0}}>{l}</span>
+                      <input type="number" min="0" max="100" value={form[k]} onChange={e=>setForm(p=>({...p,[k]:Number(e.target.value)}))} style={{...INP,width:64,padding:"6px 8px",fontSize:13}}/>
+                      <span style={{fontSize:13,color:"#64748B"}}>%</span>
+                      {(Number(form.costoEst)||0) > 0 && <span style={{fontSize:12,color:"#64748B",marginLeft:"auto"}}>{fmt$(Number(form.costoEst)*(form[k]||0)/100)}</span>}
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
+                    <span style={{fontSize:13,fontWeight:700}}>Total</span>
+                    <div style={{textAlign:"right"}}>
+                    <span style={{fontSize:13,fontWeight:700,color:pSum(form)===100?"#059669":"#EF4444"}}>{pSum(form)}%{pSum(form)!==100?" ⚠️ debe sumar 100%":" ✓"}</span>
+                    {Number(form.costoEst)>0&&<div style={{fontSize:11,color:pSum(form)===100?"#059669":"#EF4444",marginTop:2}}>{fmt$(Number(form.costoEst)*pSum(form)/100)}{pSum(form)===100?" = estimado":" ≠ "+fmt$(Number(form.costoEst))+" estimado"}</div>}
+                  </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{marginBottom:14}}><label style={LBL}>Descripción *</label><textarea placeholder="Describí el problema..." value={form.descripcion} onChange={e=>setForm(p=>({...p,descripcion:e.target.value}))} style={{...INP,height:88,resize:"none"}}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Notas internas</label><textarea placeholder="Observaciones para el equipo..." value={form.notas} onChange={e=>setForm(p=>({...p,notas:e.target.value}))} style={{...INP,height:64,resize:"none"}}/></div>
+            <div style={{marginBottom:24}}>
+              <label style={LBL}>📷 Fotos</label>
+              <input type="file" id="admin-file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotosF(setForm,"Admin",e.target.files);e.target.value="";}}/>
+              <label htmlFor="admin-file" style={{display:"block",background:"#F8FAFC",border:"1.5px dashed #CBD5E1",borderRadius:10,padding:"12px",cursor:"pointer",color:"#64748B",fontWeight:600,fontSize:13,textAlign:"center",boxSizing:"border-box"}}>📷 Agregar fotos</label>
+              {form.fotos?.length > 0 && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:8}}>
+                  {form.fotos.map((f,i) => (
+                    <div key={i} style={{position:"relative"}}>
+                      <img src={f.dataUrl} alt="" style={{width:"100%",height:80,objectFit:"cover",borderRadius:8,border:"1.5px solid #E2E8F0"}}/>
+                      <button onClick={()=>setForm(fr=>({...fr,fotos:fr.fotos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:3,right:3,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:12}}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={submit} style={BB}>{editId?"Guardar cambios":"Crear reclamo"}</button>
+            <button onClick={()=>setShowForm(false)} style={{...BG,marginTop:10}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: DETALLE RECLAMO ── */}
+      {detId && det && (
+        <div onClick={()=>setDetId(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",width:"100%",maxHeight:"92vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+              <div>
+                <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"3px 10px",borderRadius:6}}>{det.id}</span>
+                <h2 style={{margin:"8px 0 2px",fontSize:15,fontWeight:900,color:"#0F1E3C"}}>{det.propiedad}</h2>
+                <div style={{fontSize:13,color:"#64748B"}}>{det.inquilino} · {det.sector}</div>
+              </div>
+              <button onClick={()=>setDetId(null)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:18,color:"#64748B"}}>×</button>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+              <Badge label={det.estado}/><Badge label={det.prioridad} type="prioridad"/>
+              {det.aprobacion==="pendiente"  && <span style={{fontSize:11,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"3px 9px",borderRadius:20}}>⏳ Pendiente aprobación</span>}
+              {det.aprobacion==="aprobada"   && <span style={{fontSize:11,background:"#D1FAE5",color:"#065F46",fontWeight:700,padding:"3px 9px",borderRadius:20}}>✅ Aprobado</span>}
+              {det.aprobacion==="rechazada"  && <span style={{fontSize:11,background:"#FEE2E2",color:"#991B1B",fontWeight:700,padding:"3px 9px",borderRadius:20}}>❌ Rechazado</span>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+              {[["Fecha",fmtDate(det.fecha)],["Proveedor",det.proveedor||"Sin asignar"],["Costo estimado",fmt$(det.costoEst)],["Costo real",det.costoReal?fmt$(det.costoReal):"—"],["¿Quién paga?",det.quienPaga],["Email",det.email||"—"]].map(([l,v]) => (
+                <div key={l} style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:2}}>{l}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:"#0F1E3C",wordBreak:"break-word"}}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {det.quienPaga === "Por Porcentaje" && (
+              <div style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Distribución del costo</div>
+                <PctBreakdown r={det}/>
+              </div>
+            )}
+            <div style={{background:"#F8FAFC",borderRadius:10,padding:12,marginBottom:10}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Descripción</div>
+              <p style={{margin:0,fontSize:13,lineHeight:1.6,color:"#475569"}}>{det.descripcion}</p>
+            </div>
+            {det.notas && (
+              <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:10,padding:12,marginBottom:10}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#92400E",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>📝 Notas internas</div>
+                <p style={{margin:0,fontSize:13,color:"#78350F"}}>{det.notas}</p>
+              </div>
+            )}
+            <div style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8}}>📷 Fotos ({det.fotos?.length||0})</div>
+                {det.estado !== "Cerrado" && (
+                  <>
+                    <input type="file" id={`det-file-${det.id}`} accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotosR(det.id,"Admin",e.target.files);e.target.value="";showToast("📷 Foto agregada");}}/>
+                    <label htmlFor={`det-file-${det.id}`} style={{background:"#EFF6FF",color:"#1D44AA",borderRadius:8,padding:"5px 12px",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Agregar</label>
+                  </>
+                )}
+              </div>
+              {det.fotos?.length > 0 ? <Galeria fotos={det.fotos}/> : <div style={{textAlign:"center",padding:"14px 0",color:"#94A3B8",fontSize:13}}>Sin fotos adjuntas</div>}
+            </div>
+            {det.estado !== "Cerrado" && det.costoEst > 0 && det.aprobacion === null && (
+              <button onClick={()=>solAprob(det.id)} style={{...BG,marginBottom:10,color:"#1D44AA"}}>📩 Solicitar aprobación del propietario</button>
+            )}
+            {det.estado !== "Cerrado" ? (
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>abrirEdit(det)} style={{...BG,flex:1}}>✏️ Editar</button>
+                <button onClick={()=>cerrar(det.id)} style={{...BB,flex:1,background:"#059669"}}>✅ Cerrar reclamo</button>
+              </div>
+            ) : (
+              <div style={{textAlign:"center",color:"#059669",fontSize:14,fontWeight:600}}>✅ Reclamo cerrado el {fmtDate(det.ultimaAct)}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: NUEVO PROVEEDOR ── */}
+      {showProvForm && (
+        <div onClick={()=>setShowProvForm(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <h2 style={{margin:0,fontSize:17,fontWeight:900,color:"#0F1E3C"}}>Nuevo proveedor</h2>
+              <button onClick={()=>setShowProvForm(false)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:18,color:"#64748B"}}>x</button>
+            </div>
+            <div style={{marginBottom:14}}><label style={LBL}>Nombre / Empresa *</label><input placeholder="Ej: Garcia Plomeria" value={provForm.nombre} onChange={e=>setProvForm(p=>({...p,nombre:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Especialidad *</label><select value={provForm.rubro} onChange={e=>setProvForm(p=>({...p,rubro:e.target.value}))} style={INP}><option value="">selecciona</option>{SECTORES.map(o=><option key={o}>{o}</option>)}</select></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Telefono</label><input placeholder="341-555-0000" value={provForm.tel} onChange={e=>setProvForm(p=>({...p,tel:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Email</label><input type="email" placeholder="proveedor@mail.com" value={provForm.email} onChange={e=>setProvForm(p=>({...p,email:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Zona</label><input placeholder="Ej: Rosario Norte" value={provForm.zona} onChange={e=>setProvForm(p=>({...p,zona:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:24}}><label style={LBL}>Notas</label><textarea placeholder="Observaciones, horarios..." value={provForm.notas} onChange={e=>setProvForm(p=>({...p,notas:e.target.value}))} style={{...INP,height:64,resize:"none"}}/></div>
+            <button onClick={addProv} style={BB}>Guardar proveedor</button>
+            <button onClick={()=>setShowProvForm(false)} style={{...BG,marginTop:10}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
