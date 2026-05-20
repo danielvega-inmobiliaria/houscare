@@ -27,6 +27,8 @@ const SECTORES   = ["Administración","Aire Acondicionado","Albañilería","Asce
 const PRIORIDADES = ["Alta","Media","Baja"];
 const ESTADOS    = ["Pendiente","Derivado","En proceso","Presupuestado","Esperando respuesta","Resuelto","Cerrado"];
 const QUIEN_PAGA = ["Sin definir","Propietario","Inquilino","A Medias","Inmobiliaria","Por Porcentaje"];
+const TIPOS_PROP = ["Casa","Departamento","Galpón","Local Comercial","PH"];
+const ESTADOS_PROV = ["Activo","Inactivo","Suspendido"];
 
 const PC = {
   Alta:  { bg:"#FEE2E2", t:"#991B1B", d:"#EF4444" },
@@ -228,7 +230,8 @@ const toRow = r => ({
   pct_inq: r.pctInq||0, pct_prop: r.pctProp||0, pct_inmob: r.pctInmob||0,
   descripcion: r.descripcion, notas: r.notas||'',
   fotos: r.fotos||[], aprobacion: r.aprobacion||null,
-  prov_aceptado: r.provAceptado||null, mensajes: r.mensajes||[]
+  prov_aceptado: r.provAceptado||null, mensajes: r.mensajes||[],
+  comentario_cierre: r.comentarioCierre||'', rating_inq: r.ratingInq||0, comentario_inq: r.comentarioInq||''
 });
 // snake_case → camelCase (al leer de Supabase)
 const fromRow = row => ({
@@ -242,11 +245,21 @@ const fromRow = row => ({
   pctInq: Number(row.pct_inq)||0, pctProp: Number(row.pct_prop)||0, pctInmob: Number(row.pct_inmob)||0,
   descripcion: row.descripcion, notas: row.notas||'',
   fotos: row.fotos||[], aprobacion: row.aprobacion||null,
-  provAceptado: row.prov_aceptado||null, mensajes: row.mensajes||[]
+  provAceptado: row.prov_aceptado||null, mensajes: row.mensajes||[],
+  comentarioCierre: row.comentario_cierre||'', ratingInq: Number(row.rating_inq)||0, comentarioInq: row.comentario_inq||''
 });
+// Propiedades
+const toRowProp = p => ({ id:p.id, dir:p.dir, tipo:p.tipo||'Casa', owner_id:p.ownerId||'', inquilino:p.inquilino||'', email_inq:p.emailInq||'', tel_inq:p.telInq||'' });
+const fromRowProp = row => ({ id:row.id, dir:row.dir, tipo:row.tipo||'Casa', ownerId:row.owner_id||'', inquilino:row.inquilino||'', emailInq:row.email_inq||'', telInq:row.tel_inq||'' });
+// Propietarios
+const toRowOwner = o => ({ id:o.id, nombre:o.nombre, email:o.email||'', tel:o.tel||'' });
+const fromRowOwner = row => ({ id:row.id, nombre:row.nombre, email:row.email||'', tel:row.tel||'' });
 
-const EF      = { propiedad:"", inquilino:"", email:"", sector:"Plomería", prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:"", costoReal:"", quienPaga:"Sin definir", pctInq:34, pctProp:33, pctInmob:33, descripcion:"", notas:"", fotos:[] };
-const EIF     = { nombre:"", email:"", sector:"Plomería", descripcion:"", fotos:[] };
+const EF      = { propiedad:"", inquilino:"", email:"", telInq:"", sector:"Plomería", prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:"", costoReal:"", quienPaga:"Sin definir", pctInq:34, pctProp:33, pctInmob:33, descripcion:"", notas:"", fotos:[] };
+const EIF     = { nombre:"", email:"", tel:"", sector:"Plomería", descripcion:"", fotos:[] };
+const EPROVF  = { nombre:"", rubro:"", tel:"", email:"", zona:"", notas:"", estado:"Activo" };
+const EPROPF  = { id:"", dir:"", tipo:"Casa", ownerId:"", inquilino:"", emailInq:"", telInq:"" };
+const EOWNF   = { id:"", nombre:"", email:"", tel:"" };
 
 // ─── Componentes compartidos ──────────────────────────────────────────────────
 function Badge({ label, type="estado", sm }) {
@@ -313,6 +326,61 @@ function PctBreakdown({ r }) {
   );
 }
 
+// ─── Rating del inquilino ─────────────────────────────────────────────────────
+function InqRating({ reclamo, onSave }) {
+  const [val, setVal] = React.useState(0);
+  const [com, setCom] = React.useState("");
+  const [shown, setShown] = React.useState(false);
+  if (!shown) return (
+    <div style={{background:"#FFF7ED",borderRadius:8,padding:"8px 10px",marginTop:8}}>
+      <div style={{fontSize:12,color:"#EA580C",fontWeight:600,marginBottom:6}}>⭐ ¿Cómo fue la reparación? Calificá al proveedor</div>
+      <button onClick={()=>setShown(true)} style={{background:"#EA580C",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,fontSize:12,cursor:"pointer"}}>Calificar</button>
+    </div>
+  );
+  return (
+    <div style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:10,padding:"10px 12px",marginTop:8}}>
+      <div style={{fontSize:12,color:"#EA580C",fontWeight:700,marginBottom:8}}>⭐ Calificá al proveedor — {reclamo.proveedor}</div>
+      <div style={{display:"flex",gap:6,marginBottom:10}}>
+        {[1,2,3,4,5].map(n=>(
+          <button key={n} onClick={()=>setVal(n)} style={{fontSize:28,background:"none",border:"none",cursor:"pointer",color:n<=val?"#F59E0B":"#E2E8F0"}}> ★</button>
+        ))}
+      </div>
+      <textarea value={com} onChange={e=>setCom(e.target.value)} placeholder="Comentario opcional..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1.5px solid #FED7AA",fontSize:12,resize:"none",height:56,fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>val>0&&onSave(reclamo.id,val,com)} style={{flex:1,background:val>0?"#EA580C":"#CBD5E1",color:"#fff",border:"none",borderRadius:8,padding:"8px 0",fontWeight:700,fontSize:12,cursor:val>0?"pointer":"default"}}>Enviar</button>
+        <button onClick={()=>setShown(false)} style={{flex:1,background:"#F1F5F9",color:"#475569",border:"none",borderRadius:8,padding:"8px 0",fontWeight:600,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Chat interno ─────────────────────────────────────────────────────────────
+function ChatPanel({ reclamo, autor, onSend }) {
+  const [msg, setMsg] = React.useState("");
+  const msgs = reclamo?.mensajes || [];
+  const send = () => { if (!msg.trim()) return; onSend(reclamo.id, autor, msg.trim()); setMsg(""); };
+  const colorAutor = a => a==="Admin"?"#1D44AA":a==="Proveedor"?"#059669":"#EA580C";
+  const bgAutor    = a => a==="Admin"?"#EFF6FF":a==="Proveedor"?"#F0FDF4":"#FFF7ED";
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💬 Chat ({msgs.length})</div>
+      <div style={{background:"#F8FAFC",borderRadius:12,padding:10,marginBottom:8,maxHeight:200,overflowY:"auto"}}>
+        {msgs.length===0&&<div style={{color:"#94A3B8",fontSize:12,textAlign:"center",padding:"8px 0"}}>Sin mensajes aún</div>}
+        {msgs.map((m,i)=>(
+          <div key={i} style={{marginBottom:8,padding:"7px 10px",borderRadius:10,background:bgAutor(m.autor)}}>
+            <div style={{fontSize:10,fontWeight:700,color:colorAutor(m.autor),marginBottom:2}}>{m.autor} · {m.fecha}</div>
+            <div style={{fontSize:12,color:"#0F1E3C",lineHeight:1.4}}>{m.texto}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <input value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Escribí un mensaje..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:12,outline:"none",background:"#fff",fontFamily:"inherit"}}/>
+        <button onClick={send} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>➤</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── App principal ────────────────────────────────────────────────────────────
 function App() {
   // ── Estado ──
@@ -338,7 +406,18 @@ function App() {
   });
   const [inqF,       setInqF]       = useState(EIF);
   const [showProvForm,setShowProvForm] = useState(false);
-  const [provForm,    setProvForm]    = useState({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});
+  const [provForm,    setProvForm]    = useState(EPROVF);
+  const [propiedades, setPropiedades] = useState([]);
+  const [propietarios,setPropietarios]= useState([]);
+  const [showPropForm,setShowPropForm]= useState(false);
+  const [propForm,    setPropForm]    = useState(EPROPF);
+  const [editPropId,  setEditPropId]  = useState(null);
+  const [showOwnerForm,setShowOwnerForm]=useState(false);
+  const [ownerForm,   setOwnerForm]   = useState(EOWNF);
+  const [editOwnerId, setEditOwnerId] = useState(null);
+  const [propTab,     setPropTab]     = useState("props");
+  const [propBusq,    setPropBusq]    = useState("");
+  const [ratingComent,setRatingComent]= useState("");
   const [inqTab,      setInqTab]      = useState("nuevo");
   const [inqOk,      setInqOk]      = useState(null);
   const [toast,      setToast]      = useState(null);
@@ -356,6 +435,22 @@ function App() {
       } else {
         await sb.from('proveedores').upsert(PROVEEDORES_INIT);
         setProveedores(PROVEEDORES_INIT);
+      }
+      // Propiedades
+      const { data: propData } = await sb.from('propiedades').select('*').order('dir');
+      if (propData && propData.length > 0) {
+        setPropiedades(propData.map(fromRowProp));
+      } else {
+        await sb.from('propiedades').upsert(PROPS_DATA.map(toRowProp));
+        setPropiedades(PROPS_DATA);
+      }
+      // Propietarios
+      const { data: ownData } = await sb.from('propietarios').select('*').order('nombre');
+      if (ownData && ownData.length > 0) {
+        setPropietarios(ownData.map(fromRowOwner));
+      } else {
+        await sb.from('propietarios').upsert(OWNERS.map(toRowOwner));
+        setPropietarios(OWNERS);
       }
       // Reclamos
       const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
@@ -379,6 +474,14 @@ function App() {
 
     return () => sb.removeChannel(channel);
   }, []);
+
+  // Pre-cargar datos del inquilino cuando abre portal
+  useEffect(() => {
+    if (portal?.type === 'inq') {
+      const prop = propiedades.find(p => p.dir === portal.dir) || PROPS_DATA.find(p => p.dir === portal.dir);
+      if (prop?.inquilino) setInqF(f => ({...f, nombre:prop.inquilino, email:prop.emailInq||'', tel:prop.telInq||''}));
+    }
+  }, [portal, propiedades]);
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -425,7 +528,7 @@ function App() {
     return true;
   }), [reclamos, fEst, fPrio, busqueda]);
 
-  const sortedProps = React.useMemo(()=>[...PROPS_DATA].sort((a,b)=>a.dir.localeCompare(b.dir,"es")), []);
+  const sortedProps = React.useMemo(()=>[...propiedades].sort((a,b)=>a.dir.localeCompare(b.dir,"es")), [propiedades]);
 
   // ── Helpers de datos ──
   const nextId = () => {
@@ -433,13 +536,82 @@ function App() {
     return `RC-${String(Math.max(...nums, 0) + 1).padStart(3,"0")}`;
   };
   const nextProvId = () => { const nums = proveedores.map(p=>parseInt(p.id.replace(/\D/g,""))||0); return "PR"+String(Math.max(...nums,0)+1).padStart(3,"0"); };
+  const nextPropId = () => { const nums = propiedades.map(p=>parseInt(p.id.replace(/\D/g,""))||0); return "P"+String(Math.max(...nums,0)+1).padStart(3,"0"); };
+  const nextOwnId  = () => { const nums = propietarios.map(o=>parseInt(o.id.replace(/\D/g,""))||0); return "OW"+String(Math.max(...nums,0)+1).padStart(3,"0"); };
+
   const addProv = async () => {
     if(!provForm.nombre||!provForm.rubro){alert("Nombre y especialidad son obligatorios");return;}
     const newProv = {id:nextProvId(),...provForm,cal:5};
-    setProveedores(ps=>[...ps,newProv]); // optimistic
+    setProveedores(ps=>[...ps,newProv]);
     await sb.from('proveedores').insert(newProv);
-    setProvForm({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});
-    setShowProvForm(false); showToast("✅ Proveedor agregado");
+    setProvForm(EPROVF); setShowProvForm(false); showToast("✅ Proveedor agregado");
+  };
+  const deleteProv = async (id) => {
+    if(!confirm("¿Eliminar proveedor? Esta acción no se puede deshacer.")) return;
+    setProveedores(ps=>ps.filter(p=>p.id!==id));
+    await sb.from('proveedores').delete().eq('id',id);
+    showToast("🗑 Proveedor eliminado");
+  };
+
+  const sendMsg = async (recId, autor, texto) => {
+    const rec = reclamos.find(r=>r.id===recId);
+    if(!rec) return;
+    const newMsg = {autor, texto, fecha:today()};
+    const msgs = [...(rec.mensajes||[]), newMsg];
+    setReclamos(p=>p.map(r=>r.id===recId?{...r,mensajes:msgs}:r));
+    await sb.from('reclamos').update({mensajes:msgs}).eq('id',recId);
+  };
+
+  // Propiedades CRUD
+  const saveProp = async () => {
+    if(!propForm.dir){alert("La dirección es obligatoria");return;}
+    if(editPropId) {
+      const updated = {...propiedades.find(p=>p.id===editPropId), ...propForm};
+      setPropiedades(ps=>ps.map(p=>p.id===editPropId?updated:p));
+      await sb.from('propiedades').update(toRowProp(updated)).eq('id',editPropId);
+      showToast("✅ Propiedad actualizada");
+    } else {
+      const newP = {id:nextPropId(),...propForm};
+      setPropiedades(ps=>[...ps,newP]);
+      await sb.from('propiedades').insert(toRowProp(newP));
+      showToast("✅ Propiedad agregada");
+    }
+    setShowPropForm(false); setPropForm(EPROPF); setEditPropId(null);
+  };
+  const deleteProp = async (id) => {
+    if(!confirm("¿Eliminar propiedad? Los reclamos asociados quedarán sin propiedad.")) return;
+    setPropiedades(ps=>ps.filter(p=>p.id!==id));
+    await sb.from('propiedades').delete().eq('id',id);
+    showToast("🗑 Propiedad eliminada");
+  };
+  const desocuparProp = async (id) => {
+    if(!confirm("¿Marcar como desocupada? Se eliminarán los datos del inquilino.")) return;
+    setPropiedades(ps=>ps.map(p=>p.id===id?{...p,inquilino:"",emailInq:"",telInq:""}:p));
+    await sb.from('propiedades').update({inquilino:"",email_inq:"",tel_inq:""}).eq('id',id);
+    showToast("🏠 Propiedad marcada como vacía");
+  };
+
+  // Propietarios CRUD
+  const saveOwner = async () => {
+    if(!ownerForm.nombre){alert("El nombre es obligatorio");return;}
+    if(editOwnerId) {
+      const updated = {...propietarios.find(o=>o.id===editOwnerId),...ownerForm};
+      setPropietarios(ps=>ps.map(o=>o.id===editOwnerId?updated:o));
+      await sb.from('propietarios').update(toRowOwner(updated)).eq('id',editOwnerId);
+      showToast("✅ Propietario actualizado");
+    } else {
+      const newO = {id:nextOwnId(),...ownerForm};
+      setPropietarios(ps=>[...ps,newO]);
+      await sb.from('propietarios').insert(toRowOwner(newO));
+      showToast("✅ Propietario agregado");
+    }
+    setShowOwnerForm(false); setOwnerForm(EOWNF); setEditOwnerId(null);
+  };
+  const deleteOwner = async (id) => {
+    if(!confirm("¿Eliminar propietario?")) return;
+    setPropietarios(ps=>ps.filter(o=>o.id!==id));
+    await sb.from('propietarios').delete().eq('id',id);
+    showToast("🗑 Propietario eliminado");
   };
   const pSum = f => Number(f.pctInq) + Number(f.pctProp) + Number(f.pctInmob);
   const addFotosR = (id, por, files) => {
@@ -467,32 +639,50 @@ function App() {
     if (form.quienPaga === "Por Porcentaje" && pSum(form) !== 100) { alert(`Los porcentajes deben sumar 100%. Ahora suman ${pSum(form)}%.`); return; }
     const t = today();
     const base = { ...form, costoEst:Number(form.costoEst)||0, costoReal:Number(form.costoReal)||0, pctInq:Number(form.pctInq)||0, pctProp:Number(form.pctProp)||0, pctInmob:Number(form.pctInmob)||0 };
+    let provNuevo = null;
     if (editId) {
       const orig = reclamos.find(r => r.id === editId);
-      const updated = { ...orig, ...base, ultimaAct:t, provAceptado:base.proveedor&&base.proveedor!==orig?.proveedor?"pendiente":orig?.provAceptado };
-      setReclamos(p => p.map(r => r.id === editId ? updated : r)); // optimistic
+      const provCambio = base.proveedor && base.proveedor !== orig?.proveedor;
+      const updated = { ...orig, ...base, ultimaAct:t, provAceptado:provCambio?"pendiente":orig?.provAceptado };
+      setReclamos(p => p.map(r => r.id === editId ? updated : r));
       await sb.from('reclamos').update(toRow(updated)).eq('id', editId);
+      if (provCambio) provNuevo = base.proveedor;
       setEditId(null); showToast("✅ Reclamo actualizado");
     } else {
-      const newRec = { id:nextId(), fecha:t, ultimaAct:t, fotos:[], aprobacion:null, provAceptado:base.proveedor?"pendiente":null, mensajes:[], ...base };
-      setReclamos(p => [newRec, ...p]); // optimistic
+      const newRec = { id:nextId(), fecha:t, ultimaAct:t, fotos:[], aprobacion:null, provAceptado:base.proveedor?"pendiente":null, mensajes:[], comentarioCierre:'', ratingInq:0, comentarioInq:'', ...base };
+      setReclamos(p => [newRec, ...p]);
       await sb.from('reclamos').insert(toRow(newRec));
+      if (base.proveedor) provNuevo = base.proveedor;
       showToast("✅ Reclamo creado");
     }
     setForm(EF); setShowForm(false);
+    // WhatsApp automático al asignar proveedor
+    if (provNuevo) {
+      const prov = proveedores.find(p => p.nombre === provNuevo);
+      if (prov?.tel) {
+        const link = portalLink({portal:'prov', id:prov.id});
+        const waMsg = `Houscare — Hola ${prov.nombre}, tenés un trabajo asignado. Por favor revisá el detalle y confirmá si podés tomarlo:\n${link}`;
+        setTimeout(() => window.open(`https://wa.me/${prov.tel.replace(/\D/g,"")}?text=${encodeURIComponent(waMsg)}`, '_blank'), 400);
+      }
+    }
   };
-  const cerrar = async (id, rating=null) => {
+  const cerrar = async (id, rating=null, comentario='') => {
     const rec = reclamos.find(r => r.id === id);
-    // Si tiene proveedor y no vino rating, mostrar modal
     if (rec?.proveedor && rating === null) {
       setRatingModal({ id, provNombre: rec.proveedor, provId: proveedores.find(p=>p.nombre===rec.proveedor)?.id, val: 0 });
+      setRatingComent('');
       return;
     }
-    const updates = { estado:'Cerrado', ultima_act:today(), ...(rating ? {prov_aceptado: String(rating)} : {}) };
-    setReclamos(p => p.map(r => r.id === id ? { ...r, estado:"Cerrado", ultimaAct:today(), ratingAdmin:rating } : r));
+    const updates = { estado:'Cerrado', ultima_act:today(), comentario_cierre: comentario||'' };
+    setReclamos(p => p.map(r => r.id === id ? { ...r, estado:"Cerrado", ultimaAct:today(), ratingAdmin:rating, comentarioCierre:comentario } : r));
     await sb.from('reclamos').update(updates).eq('id', id);
     if (rating && rec?.proveedor) await updateProvCal(rec.proveedor, rating);
-    setDetId(null); setRatingModal(null); showToast("✅ Reclamo cerrado");
+    setDetId(null); setRatingModal(null); setRatingComent(''); showToast("✅ Reclamo cerrado");
+  };
+  const guardarRatingInq = async (id, rating, comentario) => {
+    setReclamos(p => p.map(r => r.id === id ? {...r, ratingInq:rating, comentarioInq:comentario} : r));
+    await sb.from('reclamos').update({rating_inq:rating, comentario_inq:comentario}).eq('id',id);
+    showToast("⭐ Gracias por tu calificación");
   };
   const aprobar = async (id, dec) => {
     setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec } : r)); // optimistic
@@ -546,8 +736,8 @@ function App() {
     const dir = portal.dir;
     const sub = async () => {
       if (!inqF.nombre || !inqF.descripcion) { alert("Completá nombre y descripción"); return; }
-      const newRec = { id:nextId(), fecha:today(), ultimaAct:today(), propiedad:dir, inquilino:inqF.nombre, email:inqF.email||"", telInq:"", sector:inqF.sector, prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:0, costoReal:0, quienPaga:"Sin definir", pctInq:0, pctProp:0, pctInmob:0, descripcion:inqF.descripcion, notas:"", fotos:inqF.fotos, aprobacion:null, provAceptado:null, mensajes:[] };
-      setReclamos(p => [newRec, ...p]); // optimistic
+      const newRec = { id:nextId(), fecha:today(), ultimaAct:today(), propiedad:dir, inquilino:inqF.nombre, email:inqF.email||"", telInq:inqF.tel||"", sector:inqF.sector, prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:0, costoReal:0, quienPaga:"Sin definir", pctInq:0, pctProp:0, pctInmob:0, descripcion:inqF.descripcion, notas:"", fotos:inqF.fotos, aprobacion:null, provAceptado:null, mensajes:[], comentarioCierre:'', ratingInq:0, comentarioInq:'' };
+      setReclamos(p => [newRec, ...p]);
       await sb.from('reclamos').insert(toRow(newRec));
       setInqOk(newRec.id); setInqF(EIF);
     };
@@ -572,10 +762,7 @@ function App() {
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div>
-            <button onClick={() => {setPortal(null);setInqTab("nuevo");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer"}}>← Volver</button>
-          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div>
           <div style={{display:"flex",gap:2,marginTop:10}}>
             {[["nuevo","➕ Nuevo reclamo"],["seguimiento","📋 Mis reclamos"+( recProp.length>0?" ("+recProp.length+")":"")]].map(([id,l])=>(
               <button key={id} onClick={()=>setInqTab(id)} style={{flex:1,background:inqTab===id?"#fff":"transparent",color:inqTab===id?"#0F1E3C":"rgba(255,255,255,.7)",border:"none",borderRadius:"8px 8px 0 0",padding:"7px 4px",fontWeight:inqTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
@@ -597,6 +784,14 @@ function App() {
                 {r.proveedor&&<div style={{fontSize:12,color:"#475569",marginTop:4}}>🔧 Proveedor: <b>{r.proveedor}</b></div>}
                 {r.aprobacion==="pendiente"&&<div style={{background:"#FEF3C7",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#92400E",fontWeight:600,marginTop:8}}>⏳ Aguardando aprobación del propietario</div>}
                 {r.aprobacion==="aprobada"&&<div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginTop:8}}>✅ Reparación aprobada</div>}
+                {r.estado==="Cerrado"&&r.proveedor&&!r.ratingInq&&(
+                  <InqRating reclamo={r} onSave={guardarRatingInq}/>
+                )}
+                {r.estado==="Cerrado"&&r.ratingInq>0&&(
+                  <div style={{background:"#F0FDF4",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginTop:8}}>
+                    ⭐ Tu calificación: {"★".repeat(r.ratingInq)} — {r.comentarioInq||"Sin comentario"}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -605,6 +800,7 @@ function App() {
           <div style={{background:"#EFF6FF",borderRadius:12,padding:"12px 14px",marginBottom:14,fontSize:13,color:"#1D44AA",fontWeight:600}}>Reportá un problema en tu propiedad. Te avisamos cuando esté resuelto.</div>
           <div style={CARD}>
             <div style={{marginBottom:14}}><label style={LBL}>Tu nombre *</label><input placeholder="Apellido, Nombre" value={inqF.nombre} onChange={e=>setInqF(f=>({...f,nombre:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Teléfono</label><input type="tel" placeholder="341-000-0000" value={inqF.tel||""} onChange={e=>setInqF(f=>({...f,tel:e.target.value}))} style={INP}/></div>
             <div style={{marginBottom:14}}><label style={LBL}>Email</label><input type="email" placeholder="tu@email.com" value={inqF.email} onChange={e=>setInqF(f=>({...f,email:e.target.value}))} style={INP}/></div>
             <div style={{marginBottom:14}}><label style={LBL}>Tipo de problema</label><select value={inqF.sector} onChange={e=>setInqF(f=>({...f,sector:e.target.value}))} style={INP}>{SECTORES.map(o=><option key={o}>{o}</option>)}</select></div>
             <div style={{marginBottom:14}}><label style={LBL}>Descripción *</label><textarea placeholder="Describí el problema con el mayor detalle posible..." value={inqF.descripcion} onChange={e=>setInqF(f=>({...f,descripcion:e.target.value}))} style={{...INP,height:100,resize:"none"}}/></div>
@@ -639,10 +835,7 @@ function App() {
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Proveedor</div><div style={{color:"#94A3B8",fontSize:11}}>{prov?.nombre}</div></div></div>
-            <button onClick={()=>setPortal(null)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer"}}>← Volver</button>
-          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Proveedor</div><div style={{color:"#94A3B8",fontSize:11}}>{prov?.nombre}</div></div></div>
         </div>
         <div style={{padding:"12px 16px 60px"}}>
           <div style={{...CARD,background:"#EFF6FF",marginBottom:14}}>
@@ -667,7 +860,10 @@ function App() {
                 </div>
               )}
               {r.provAceptado==="aceptado"&&(
-                <div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginBottom:8}}>✅ Trabajo aceptado — podés coordinar con el inquilino</div>
+                <>
+                  <div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginBottom:8}}>✅ Trabajo aceptado — podés coordinar con el inquilino</div>
+                  <ChatPanel reclamo={r} autor="Proveedor" onSend={sendMsg}/>
+                </>
               )}
               <div style={{display:"flex",gap:8}}>
                 <input type="file" accept="image/*" multiple id={`pf-${r.id}`} style={{display:"none"}} onChange={e=>{addFotosR(r.id,"Proveedor",e.target.files);e.target.value="";showToast("📷 Foto subida");}}/>
@@ -694,10 +890,7 @@ function App() {
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Propietario</div><div style={{color:"#94A3B8",fontSize:11}}>{owner?.nombre}</div></div></div>
-            <button onClick={()=>setPortal(null)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:12,cursor:"pointer"}}>← Volver</button>
-          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Propietario</div><div style={{color:"#94A3B8",fontSize:11}}>{owner?.nombre}</div></div></div>
         </div>
         <div style={{padding:"12px 16px 60px"}}>
           <div style={{...CARD,background:"#EFF6FF",marginBottom:6}}>
@@ -753,7 +946,7 @@ function App() {
   // ════════════════════════════════════════════════════════
   //  ADMIN
   // ════════════════════════════════════════════════════════
-  const NAV = [{id:"inicio",l:"Inicio"},{id:"reclamos",l:"Reclamos"},{id:"proveedores",l:"Proveedores"},{id:"portales",l:"Portales"}];
+  const NAV = [{id:"inicio",l:"Inicio"},{id:"reclamos",l:"Reclamos"},{id:"proveedores",l:"Proveedores"},{id:"portales",l:"Portales"},{id:"propiedades",l:"Datos"}];
 
   return (
     <div style={{background:"#F0F4F8",minHeight:"100vh",position:"relative"}}>
@@ -775,7 +968,12 @@ function App() {
               <div style={{color:"#94A3B8",fontSize:11}}>Inversiones Inmobiliarias</div>
             </div>
           </div>
-          <button onClick={()=>{if(tab==="proveedores"){setProvForm({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});setShowProvForm(true);}else{setForm(EF);setEditId(null);setShowForm(true);}}} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
+          <button onClick={()=>{
+            if(tab==="proveedores"){setProvForm(EPROVF);setShowProvForm(true);}
+            else if(tab==="propiedades"&&propTab==="props"){setPropForm(EPROPF);setEditPropId(null);setShowPropForm(true);}
+            else if(tab==="propiedades"&&propTab==="owners"){setOwnerForm(EOWNF);setEditOwnerId(null);setShowOwnerForm(true);}
+            else{setForm(EF);setEditId(null);setShowForm(true);}
+          }} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
         </div>
         <div style={{display:"flex",gap:2,marginTop:12}}>
           {NAV.map(n => (
@@ -871,17 +1069,27 @@ function App() {
           {proveedores.map(p => {
             const act = reclamos.filter(r => r.proveedor === p.nombre && r.estado !== "Cerrado").length;
             const tot = reclamos.filter(r => r.proveedor === p.nombre).length;
+            const estColor = p.estado==="Activo"?{bg:"#D1FAE5",t:"#065F46"}:p.estado==="Inactivo"?{bg:"#FEF3C7",t:"#92400E"}:{bg:"#FEE2E2",t:"#991B1B"};
             return (
               <div key={p.id} style={CARD}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                  <div><div style={{fontWeight:800,fontSize:15,color:"#0F1E3C",marginBottom:4}}>{p.nombre}</div><span style={{fontSize:11,fontWeight:700,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{p.rubro}</span></div>
-                  <Stars n={p.cal}/>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:15,color:"#0F1E3C",marginBottom:4}}>{p.nombre}</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <span style={{fontSize:11,fontWeight:700,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{p.rubro}</span>
+                      {p.zona&&<span style={{fontSize:11,color:"#64748B",background:"#F1F5F9",padding:"2px 8px",borderRadius:6}}>📍 {p.zona}</span>}
+                      <span style={{fontSize:11,fontWeight:700,color:estColor.t,background:estColor.bg,padding:"2px 8px",borderRadius:6}}>{p.estado||"Activo"}</span>
+                    </div>
+                  </div>
+                  <Stars n={p.cal||5}/>
                 </div>
-                <div style={{fontSize:13,color:"#475569",marginBottom:3}}>📞 {p.tel}</div>
-                <div style={{fontSize:13,color:"#475569",marginBottom:12}}>✉️ {p.email}</div>
+                {p.notas&&<div style={{fontSize:11,color:"#64748B",fontStyle:"italic",marginBottom:6}}>"{p.notas}"</div>}
+                <div style={{fontSize:12,color:"#475569",marginBottom:2}}>📞 {p.tel||"—"}</div>
+                <div style={{fontSize:12,color:"#475569",marginBottom:10}}>✉️ {p.email||"—"}</div>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
-                  <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,flex:2,fontSize:13,padding:"10px 0"}}>Ver portal</button>
-                  {p.tel&&<a href={`https://wa.me/${p.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"10px 0",fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                  <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,flex:2,fontSize:12,padding:"9px 0"}}>Ver portal</button>
+                  {p.tel&&<a href={`https://wa.me/${p.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                  <button onClick={()=>deleteProv(p.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>🗑</button>
                 </div>
                 <div style={{fontSize:11,color:"#94A3B8"}}>{tot} reclamo{tot!==1?"s":""} · <span style={{color:act>0?"#10B981":"#94A3B8"}}>{act} activo{act!==1?"s":""}</span></div>
               </div>
@@ -981,6 +1189,114 @@ function App() {
         </div>
       )}
 
+      {/* ── DATOS: PROPIEDADES Y PROPIETARIOS ── */}
+      {tab === "propiedades" && (
+        <div style={{paddingBottom:24}}>
+          <div style={{display:"flex",background:"#0F1E3C",padding:"0 16px"}}>
+            {[["props","🏠 Propiedades"],["owners","👤 Propietarios"]].map(([id,l])=>(
+              <button key={id} onClick={()=>setPropTab(id)} style={{flex:1,background:propTab===id?"#fff":"transparent",color:propTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:propTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+          <div style={{padding:"10px 16px 0"}}>
+            <input placeholder="🔍 Buscar..." value={propBusq} onChange={e=>setPropBusq(e.target.value)} style={{...INP,marginBottom:10}}/>
+          </div>
+
+          {propTab==="props" && (
+            <div style={{padding:"0 16px"}}>
+              {propiedades
+                .filter(p=>!propBusq||p.dir.toLowerCase().includes(propBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(propBusq.toLowerCase()))
+                .map(p=>{
+                  const owner = propietarios.find(o=>o.id===p.ownerId) || OWNERS.find(o=>o.id===p.ownerId);
+                  const recAct = reclamos.filter(r=>r.propiedad===p.dir&&r.estado!=="Cerrado").length;
+                  const ocup = !!p.inquilino;
+                  return (
+                    <div key={p.id} style={{...CARD,borderLeft:`4px solid ${ocup?"#10B981":"#94A3B8"}`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                        <div style={{fontWeight:700,fontSize:13,color:"#0F1E3C",flex:1,marginRight:8}}>{p.dir}</div>
+                        <span style={{fontSize:10,fontWeight:700,background:ocup?"#D1FAE5":"#F1F5F9",color:ocup?"#065F46":"#94A3B8",padding:"2px 8px",borderRadius:8,flexShrink:0}}>{ocup?"Ocupada":"Vacía"}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>🏢 {p.tipo} {owner?" · 👤 "+owner.nombre:""}</div>
+                      {ocup&&<div style={{fontSize:12,color:"#1D44AA",fontWeight:600,marginBottom:2}}>👤 {p.inquilino}</div>}
+                      {ocup&&p.telInq&&<div style={{fontSize:11,color:"#64748B",marginBottom:2}}>📞 {p.telInq}</div>}
+                      {ocup&&p.emailInq&&<div style={{fontSize:11,color:"#64748B",marginBottom:6}}>✉️ {p.emailInq}</div>}
+                      {recAct>0&&<div style={{fontSize:11,color:"#F59E0B",fontWeight:700,marginBottom:6}}>⚠️ {recAct} reclamo{recAct!==1?"s":""} activo{recAct!==1?"s":""}</div>}
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <button onClick={()=>{setPropForm({id:p.id,dir:p.dir,tipo:p.tipo||"Casa",ownerId:p.ownerId||"",inquilino:p.inquilino||"",emailInq:p.emailInq||"",telInq:p.telInq||""});setEditPropId(p.id);setShowPropForm(true);}} style={{...BG,flex:2,fontSize:11,padding:"7px 0"}}>✏️ Editar</button>
+                        {ocup&&<button onClick={()=>desocuparProp(p.id)} style={{flex:2,background:"#FEF3C7",color:"#92400E",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer"}}>🏚 Desocupar</button>}
+                        <button onClick={()=>deleteProp(p.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer"}}>🗑</button>
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+
+          {propTab==="owners" && (
+            <div style={{padding:"0 16px"}}>
+              {propietarios
+                .filter(o=>!propBusq||o.nombre.toLowerCase().includes(propBusq.toLowerCase()))
+                .map(o=>{
+                  const nProps = propiedades.filter(p=>p.ownerId===o.id).length;
+                  return (
+                    <div key={o.id} style={CARD}>
+                      <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:4}}>{o.nombre}</div>
+                      <div style={{fontSize:12,color:"#64748B",marginBottom:2}}>🏠 {nProps} propiedad{nProps!==1?"es":""}</div>
+                      {o.tel&&<div style={{fontSize:12,color:"#475569",marginBottom:2}}>📞 {o.tel}</div>}
+                      {o.email&&<div style={{fontSize:12,color:"#475569",marginBottom:8}}>✉️ {o.email}</div>}
+                      <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>{setOwnerForm({id:o.id,nombre:o.nombre,email:o.email||"",tel:o.tel||""});setEditOwnerId(o.id);setShowOwnerForm(true);}} style={{...BG,flex:2,fontSize:11,padding:"7px 0"}}>✏️ Editar</button>
+                        <button onClick={()=>deleteOwner(o.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer"}}>🗑</button>
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── MODAL: NUEVA / EDITAR PROPIEDAD ── */}
+      {showPropForm && (
+        <div onClick={()=>setShowPropForm(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <h2 style={{margin:0,fontSize:17,fontWeight:900,color:"#0F1E3C"}}>{editPropId?"Editar propiedad":"Nueva propiedad"}</h2>
+              <button onClick={()=>setShowPropForm(false)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:18,color:"#64748B"}}>×</button>
+            </div>
+            <div style={{marginBottom:14}}><label style={LBL}>Dirección *</label><input placeholder="Ej: Av. San Martín 1234" value={propForm.dir} onChange={e=>setPropForm(p=>({...p,dir:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Tipo</label><select value={propForm.tipo} onChange={e=>setPropForm(p=>({...p,tipo:e.target.value}))} style={INP}>{TIPOS_PROP.map(o=><option key={o}>{o}</option>)}</select></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Propietario</label><select value={propForm.ownerId} onChange={e=>setPropForm(p=>({...p,ownerId:e.target.value}))} style={INP}><option value="">— Sin propietario —</option>{propietarios.map(o=><option key={o.id} value={o.id}>{o.nombre}</option>)}</select></div>
+            <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:10,padding:"12px",marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#0369A1",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Datos del Inquilino</div>
+              <div style={{marginBottom:10}}><label style={LBL}>Nombre completo</label><input placeholder="Apellido, Nombre" value={propForm.inquilino} onChange={e=>setPropForm(p=>({...p,inquilino:e.target.value}))} style={INP}/></div>
+              <div style={{marginBottom:10}}><label style={LBL}>Teléfono</label><input placeholder="341-000-0000" value={propForm.telInq} onChange={e=>setPropForm(p=>({...p,telInq:e.target.value}))} style={INP}/></div>
+              <div style={{marginBottom:0}}><label style={LBL}>Email</label><input type="email" placeholder="inquilino@mail.com" value={propForm.emailInq} onChange={e=>setPropForm(p=>({...p,emailInq:e.target.value}))} style={INP}/></div>
+            </div>
+            <button onClick={saveProp} style={BB}>{editPropId?"Guardar cambios":"Agregar propiedad"}</button>
+            <button onClick={()=>setShowPropForm(false)} style={{...BG,marginTop:10}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: NUEVO / EDITAR PROPIETARIO ── */}
+      {showOwnerForm && (
+        <div onClick={()=>setShowOwnerForm(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",width:"100%",maxHeight:"75vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <h2 style={{margin:0,fontSize:17,fontWeight:900,color:"#0F1E3C"}}>{editOwnerId?"Editar propietario":"Nuevo propietario"}</h2>
+              <button onClick={()=>setShowOwnerForm(false)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:18,color:"#64748B"}}>×</button>
+            </div>
+            <div style={{marginBottom:14}}><label style={LBL}>Nombre completo *</label><input placeholder="Apellido, Nombre" value={ownerForm.nombre} onChange={e=>setOwnerForm(p=>({...p,nombre:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Teléfono</label><input placeholder="341-000-0000" value={ownerForm.tel} onChange={e=>setOwnerForm(p=>({...p,tel:e.target.value}))} style={INP}/></div>
+            <div style={{marginBottom:24}}><label style={LBL}>Email</label><input type="email" placeholder="propietario@mail.com" value={ownerForm.email} onChange={e=>setOwnerForm(p=>({...p,email:e.target.value}))} style={INP}/></div>
+            <button onClick={saveOwner} style={BB}>{editOwnerId?"Guardar cambios":"Agregar propietario"}</button>
+            <button onClick={()=>setShowOwnerForm(false)} style={{...BG,marginTop:10}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL: NUEVO / EDITAR RECLAMO ── */}
       {showForm && (
         <div onClick={()=>setShowForm(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
@@ -1000,16 +1316,17 @@ function App() {
             <div style={{marginBottom:14}}><label style={LBL}>Estado</label><select value={form.estado} onChange={e=>setForm(p=>({...p,estado:e.target.value}))} style={INP}>{ESTADOS.map(o=><option key={o}>{o}</option>)}</select></div>
             {(()=>{
               const sKey=form.sector.toLowerCase().split(/[/\s]/)[0];
-              const mp=proveedores.filter(p=>p.rubro.toLowerCase().includes(sKey)||sKey.includes(p.rubro.toLowerCase().split(/[/\s]/)[0]));
-              const op=proveedores.filter(p=>!mp.includes(p));
+              const activos=proveedores.filter(p=>p.estado!=="Suspendido");
+              const mp=activos.filter(p=>p.rubro.toLowerCase().includes(sKey)||sKey.includes(p.rubro.toLowerCase().split(/[/\s]/)[0])).sort((a,b)=>(b.cal||0)-(a.cal||0));
+              const op=activos.filter(p=>!mp.find(m=>m.id===p.id)).sort((a,b)=>(b.cal||0)-(a.cal||0));
               const selProv = proveedores.find(p=>p.nombre===form.proveedor);
               const recAct = selProv ? reclamos.filter(r=>r.proveedor===selProv.nombre&&r.estado!=="Cerrado").length : 0;
               return <div style={{marginBottom:14}}>
                 <label style={LBL}>Proveedor{mp.length>0&&<span style={{fontSize:10,color:"#059669",fontWeight:700,marginLeft:6}}>● {mp.length} para "{form.sector}"</span>}</label>
                 <select value={form.proveedor} onChange={e=>setForm(p=>({...p,proveedor:e.target.value}))} style={INP}>
                   <option value="">— Sin asignar —</option>
-                  {mp.length>0&&<optgroup label={`✓ Para ${form.sector}`}>{mp.map(p=><option key={p.id}>{p.nombre}</option>)}</optgroup>}
-                  {op.length>0&&<optgroup label="Otros proveedores">{op.map(p=><option key={p.id}>{p.nombre}</option>)}</optgroup>}
+                  {mp.length>0&&<optgroup label={`✓ Para ${form.sector} (mejor calificados primero)`}>{mp.map(p=><option key={p.id} value={p.nombre}>{p.nombre} — {p.rubro}{p.zona?" · "+p.zona:""} · ★{(p.cal||5).toFixed(1)}</option>)}</optgroup>}
+                  {op.length>0&&<optgroup label="Otros proveedores">{op.map(p=><option key={p.id} value={p.nombre}>{p.nombre} — {p.rubro}{p.zona?" · "+p.zona:""} · ★{(p.cal||5).toFixed(1)}</option>)}</optgroup>}
                 </select>
                 {selProv&&<div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:10,padding:"10px 12px",marginTop:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -1018,8 +1335,8 @@ function App() {
                   </div>
                   <div style={{fontSize:11,color:"#0369A1",marginBottom:2}}>🔧 {selProv.rubro}{selProv.zona?" · 📍 "+selProv.zona:""}</div>
                   <div style={{fontSize:11,color:"#475569",marginBottom:2}}>📋 {recAct} trabajo{recAct!==1?"s":""} activo{recAct!==1?"s":""}</div>
-                  {selProv.notas&&<div style={{fontSize:11,color:"#64748B",fontStyle:"italic"}}>"{selProv.notas}"</div>}
-                  {selProv.tel&&<a href={`https://wa.me/${selProv.tel.replace(/\D/g,"")}`} target="_blank" style={{display:"inline-block",marginTop:6,fontSize:11,color:"#059669",fontWeight:700,textDecoration:"none"}}>💬 Contactar por WhatsApp</a>}
+                  {selProv.notas&&<div style={{fontSize:11,color:"#64748B",fontStyle:"italic",marginBottom:4}}>"{selProv.notas}"</div>}
+                  {selProv.tel&&<a href={`https://wa.me/${selProv.tel.replace(/\D/g,"")}`} target="_blank" style={{display:"inline-block",marginTop:4,fontSize:11,color:"#059669",fontWeight:700,textDecoration:"none"}}>💬 Contactar por WhatsApp</a>}
                 </div>}
               </div>;
             })()}
@@ -1128,6 +1445,7 @@ function App() {
               </div>
               {det.fotos?.length > 0 ? <Galeria fotos={det.fotos}/> : <div style={{textAlign:"center",padding:"14px 0",color:"#94A3B8",fontSize:13}}>Sin fotos adjuntas</div>}
             </div>
+            <ChatPanel reclamo={det} autor="Admin" onSend={sendMsg}/>
             {det.estado !== "Cerrado" && det.costoEst > 0 && det.aprobacion === null && (
               <button onClick={()=>solAprob(det.id)} style={{...BG,marginBottom:10,color:"#1D44AA"}}>📩 Solicitar aprobación del propietario</button>
             )}
@@ -1159,13 +1477,14 @@ function App() {
                     color:n<=(ratingModal.val||0)?"#F59E0B":"#E2E8F0",transition:"color .15s"}}>★</button>
               ))}
             </div>
-            <div style={{fontSize:12,color:"#94A3B8",textAlign:"center",marginBottom:16}}>
+            <div style={{fontSize:12,color:"#94A3B8",textAlign:"center",marginBottom:12}}>
               {ratingModal.val===0?"Tocá las estrellas para calificar":["","⭐ Muy malo","⭐⭐ Regular","⭐⭐⭐ Bueno","⭐⭐⭐⭐ Muy bueno","⭐⭐⭐⭐⭐ Excelente"][ratingModal.val]}
             </div>
-            <button onClick={()=>cerrar(ratingModal.id, ratingModal.val||null)} style={{...BB,marginBottom:8}}>
+            <textarea value={ratingComent} onChange={e=>setRatingComent(e.target.value)} placeholder="Comentario sobre el trabajo (opcional)..." style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:13,resize:"none",height:72,fontFamily:"inherit",boxSizing:"border-box",marginBottom:12,outline:"none"}}/>
+            <button onClick={()=>cerrar(ratingModal.id, ratingModal.val||null, ratingComent)} style={{...BB,marginBottom:8}}>
               {ratingModal.val>0?"✅ Cerrar y calificar":"Cerrar sin calificar"}
             </button>
-            <button onClick={()=>setRatingModal(null)} style={BG}>Cancelar</button>
+            <button onClick={()=>{setRatingModal(null);setRatingComent('');}} style={BG}>Cancelar</button>
           </div>
         </div>
       )}
@@ -1183,7 +1502,8 @@ function App() {
             <div style={{marginBottom:14}}><label style={LBL}>Telefono</label><input placeholder="341-555-0000" value={provForm.tel} onChange={e=>setProvForm(p=>({...p,tel:e.target.value}))} style={INP}/></div>
             <div style={{marginBottom:14}}><label style={LBL}>Email</label><input type="email" placeholder="proveedor@mail.com" value={provForm.email} onChange={e=>setProvForm(p=>({...p,email:e.target.value}))} style={INP}/></div>
             <div style={{marginBottom:14}}><label style={LBL}>Zona</label><input placeholder="Ej: Rosario Norte" value={provForm.zona} onChange={e=>setProvForm(p=>({...p,zona:e.target.value}))} style={INP}/></div>
-            <div style={{marginBottom:24}}><label style={LBL}>Notas</label><textarea placeholder="Observaciones, horarios..." value={provForm.notas} onChange={e=>setProvForm(p=>({...p,notas:e.target.value}))} style={{...INP,height:64,resize:"none"}}/></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Estado</label><select value={provForm.estado||"Activo"} onChange={e=>setProvForm(p=>({...p,estado:e.target.value}))} style={INP}>{ESTADOS_PROV.map(o=><option key={o}>{o}</option>)}</select></div>
+            <div style={{marginBottom:24}}><label style={LBL}>Notas</label><textarea placeholder="Observaciones, horarios, referencias..." value={provForm.notas} onChange={e=>setProvForm(p=>({...p,notas:e.target.value}))} style={{...INP,height:64,resize:"none"}}/></div>
             <button onClick={addProv} style={BB}>Guardar proveedor</button>
             <button onClick={()=>setShowProvForm(false)} style={{...BG,marginTop:10}}>Cancelar</button>
           </div>
