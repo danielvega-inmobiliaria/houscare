@@ -326,6 +326,42 @@ function PctBreakdown({ r }) {
   );
 }
 
+// ─── Reclamo expandible para inquilino ───────────────────────────────────────
+function InqReclamoCard({ r, onRating, onMsg }) {
+  const [open, setOpen] = React.useState(false);
+  const PC2 = { Alta:{d:"#EF4444"}, Media:{d:"#F59E0B"}, Baja:{d:"#3B82F6"} };
+  return (
+    <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 6px rgba(0,0,0,.07)",marginBottom:10,borderLeft:`4px solid ${PC2[r.prioridad]?.d||"#CBD5E1"}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}} onClick={()=>setOpen(o=>!o)}>
+        <div>
+          <span style={{fontSize:12,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6,marginRight:8}}>{r.id}</span>
+          <span style={{fontSize:12,fontWeight:600,color:"#0F1E3C"}}>{r.sector}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:20,background:r.estado==="Cerrado"?"#F1F5F9":"#D1FAE5",color:r.estado==="Cerrado"?"#475569":"#065F46"}}>{r.estado}</span>
+          <span style={{color:"#94A3B8",fontSize:16}}>{open?"▲":"▼"}</span>
+        </div>
+      </div>
+      <div style={{fontSize:12,color:"#64748B",marginBottom:4}}>{r.descripcion.slice(0,80)}{r.descripcion.length>80?"…":""}</div>
+      <div style={{fontSize:11,color:"#94A3B8"}}>📅 {r.fecha}{r.proveedor?" · 🔧 "+r.proveedor:""}</div>
+      {open&&(
+        <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #F1F5F9"}}>
+          <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
+          {r.aprobacion==="pendiente"&&<div style={{background:"#FEF3C7",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#92400E",fontWeight:600,marginBottom:8}}>⏳ Aguardando aprobación del propietario</div>}
+          {r.aprobacion==="aprobada"&&<div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginBottom:8}}>✅ Reparación aprobada</div>}
+          {r.proveedor&&r.estado!=="Pendiente"&&<ChatPanel reclamo={r} autor="Inquilino" onSend={onMsg}/>}
+          {r.estado==="Cerrado"&&r.proveedor&&!r.ratingInq&&<InqRating reclamo={r} onSave={onRating}/>}
+          {r.estado==="Cerrado"&&r.ratingInq>0&&(
+            <div style={{background:"#F0FDF4",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginTop:8}}>
+              ⭐ Tu calificación: {"★".repeat(r.ratingInq)} {r.comentarioInq&&`— ${r.comentarioInq}`}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Rating del inquilino ─────────────────────────────────────────────────────
 function InqRating({ reclamo, onSave }) {
   const [val, setVal] = React.useState(0);
@@ -418,6 +454,7 @@ function App() {
   const [propTab,     setPropTab]     = useState("props");
   const [propBusq,    setPropBusq]    = useState("");
   const [ratingComent,setRatingComent]= useState("");
+  const [provTab,     setProvTab]     = useState("todos");
   const [inqTab,      setInqTab]      = useState("nuevo");
   const [inqOk,      setInqOk]      = useState(null);
   const [toast,      setToast]      = useState(null);
@@ -484,6 +521,15 @@ function App() {
   }, [portal, propiedades]);
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const refresh = async () => {
+    showToast("🔄 Actualizando…");
+    const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
+    if (recData) setReclamos(recData.map(fromRow));
+    const { data: provData } = await sb.from('proveedores').select('*');
+    if (provData && provData.length > 0) setProveedores(provData);
+    showToast("✅ Datos actualizados");
+  };
 
   // ── Links directos a portales ──
   const BASE_URL = window.location.origin + window.location.pathname;
@@ -754,7 +800,10 @@ function App() {
           </div>
           <p style={{fontSize:13,color:"#94A3B8",marginBottom:24}}>Guardá este número para hacer seguimiento.</p>
           <button onClick={() => setInqOk(null)} style={BB}>Reportar otro problema</button>
-          <button onClick={() => { setPortal(null); setInqOk(null); }} style={{...BG,marginTop:10}}>← Salir del portal</button>
+          <button onClick={() => {
+            if(portal?.fromAdmin){ setPortal(null); setTab("portales"); setInqOk(null); }
+            else { try{ window.close(); }catch(e){} window.location.href = window.location.pathname; }
+          }} style={{...BG,marginTop:10}}>← Salir del portal</button>
         </div>
       </div>
     );
@@ -762,7 +811,10 @@ function App() {
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div>
+            {portal?.fromAdmin&&<button onClick={()=>{setPortal(null);setTab("portales");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>}
+          </div>
           <div style={{display:"flex",gap:2,marginTop:10}}>
             {[["nuevo","➕ Nuevo reclamo"],["seguimiento","📋 Mis reclamos"+( recProp.length>0?" ("+recProp.length+")":"")]].map(([id,l])=>(
               <button key={id} onClick={()=>setInqTab(id)} style={{flex:1,background:inqTab===id?"#fff":"transparent",color:inqTab===id?"#0F1E3C":"rgba(255,255,255,.7)",border:"none",borderRadius:"8px 8px 0 0",padding:"7px 4px",fontWeight:inqTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
@@ -772,28 +824,10 @@ function App() {
         {inqTab==="seguimiento"&&(
           <div style={{padding:"12px 16px 60px"}}>
             {recProp.length===0&&<div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48,marginBottom:10}}>📋</div><div>No hay reclamos registrados para esta propiedad.</div></div>}
-            {recProp.map(r=>(
-              <div key={r.id} style={{...CARD,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                  <span style={{fontSize:12,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span>
-                  <Badge label={r.estado} sm/>
-                </div>
-                <div style={{fontSize:13,fontWeight:600,color:"#0F1E3C",marginBottom:2}}>{r.sector}</div>
-                <div style={{fontSize:12,color:"#64748B",marginBottom:6}}>{r.descripcion.slice(0,80)}{r.descripcion.length>80?"…":""}</div>
-                <div style={{fontSize:11,color:"#94A3B8"}}>Fecha: {fmtDate(r.fecha)} · Última actualización: {fmtDate(r.ultimaAct)}</div>
-                {r.proveedor&&<div style={{fontSize:12,color:"#475569",marginTop:4}}>🔧 Proveedor: <b>{r.proveedor}</b></div>}
-                {r.aprobacion==="pendiente"&&<div style={{background:"#FEF3C7",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#92400E",fontWeight:600,marginTop:8}}>⏳ Aguardando aprobación del propietario</div>}
-                {r.aprobacion==="aprobada"&&<div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginTop:8}}>✅ Reparación aprobada</div>}
-                {r.estado==="Cerrado"&&r.proveedor&&!r.ratingInq&&(
-                  <InqRating reclamo={r} onSave={guardarRatingInq}/>
-                )}
-                {r.estado==="Cerrado"&&r.ratingInq>0&&(
-                  <div style={{background:"#F0FDF4",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginTop:8}}>
-                    ⭐ Tu calificación: {"★".repeat(r.ratingInq)} — {r.comentarioInq||"Sin comentario"}
-                  </div>
-                )}
-              </div>
-            ))}
+            {recProp.map(r=>{
+              const [open, setOpen] = [false,()=>{}]; // local expand handled by component
+              return <InqReclamoCard key={r.id} r={r} onRating={guardarRatingInq} onMsg={sendMsg}/>;
+            })}
           </div>
         )}
         {inqTab==="nuevo"&&<div style={{padding:"16px 16px 60px"}}>
@@ -835,7 +869,13 @@ function App() {
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Proveedor</div><div style={{color:"#94A3B8",fontSize:11}}>{prov?.nombre}</div></div></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Proveedor</div><div style={{color:"#94A3B8",fontSize:11}}>{prov?.nombre}</div></div></div>
+            {portal?.fromAdmin
+              ? <button onClick={()=>{setPortal(null);setTab("portales");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>
+              : <button onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>📋 Mis Tareas</button>
+            }
+          </div>
         </div>
         <div style={{padding:"12px 16px 60px"}}>
           <div style={{...CARD,background:"#EFF6FF",marginBottom:14}}>
@@ -890,7 +930,10 @@ function App() {
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Propietario</div><div style={{color:"#94A3B8",fontSize:11}}>{owner?.nombre}</div></div></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Propietario</div><div style={{color:"#94A3B8",fontSize:11}}>{owner?.nombre}</div></div></div>
+            {portal?.fromAdmin&&<button onClick={()=>{setPortal(null);setTab("portales");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>}
+          </div>
         </div>
         <div style={{padding:"12px 16px 60px"}}>
           <div style={{...CARD,background:"#EFF6FF",marginBottom:6}}>
@@ -968,12 +1011,15 @@ function App() {
               <div style={{color:"#94A3B8",fontSize:11}}>Inversiones Inmobiliarias</div>
             </div>
           </div>
-          <button onClick={()=>{
-            if(tab==="proveedores"){setProvForm(EPROVF);setShowProvForm(true);}
-            else if(tab==="propiedades"&&propTab==="props"){setPropForm(EPROPF);setEditPropId(null);setShowPropForm(true);}
-            else if(tab==="propiedades"&&propTab==="owners"){setOwnerForm(EOWNF);setEditOwnerId(null);setShowOwnerForm(true);}
-            else{setForm(EF);setEditId(null);setShowForm(true);}
-          }} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={refresh} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:16,cursor:"pointer"}} title="Actualizar datos">🔄</button>
+            <button onClick={()=>{
+              if(tab==="proveedores"){setProvForm(EPROVF);setShowProvForm(true);}
+              else if(tab==="propiedades"&&propTab==="props"){setPropForm(EPROPF);setEditPropId(null);setShowPropForm(true);}
+              else if(tab==="propiedades"&&propTab==="owners"){setOwnerForm(EOWNF);setEditOwnerId(null);setShowOwnerForm(true);}
+              else{setForm(EF);setEditId(null);setShowForm(true);}
+            }} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
+          </div>
         </div>
         <div style={{display:"flex",gap:2,marginTop:12}}>
           {NAV.map(n => (
@@ -1065,8 +1111,15 @@ function App() {
 
       {/* ── PROVEEDORES ── */}
       {tab === "proveedores" && (
-        <div style={{padding:"0 16px 24px"}}>
-          {proveedores.map(p => {
+        <div style={{paddingBottom:24}}>
+          <div style={{display:"flex",background:"#0F1E3C",padding:"0 16px"}}>
+            {[["todos","Todos"],["Inactivo","Inactivos"],["Suspendido","Suspendidos"]].map(([id,l])=>{
+              const count = id==="todos"?proveedores.length:proveedores.filter(p=>(p.estado||"Activo")===id).length;
+              return <button key={id} onClick={()=>setProvTab(id)} style={{flex:1,background:provTab===id?"#fff":"transparent",color:provTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:provTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l} ({count})</button>;
+            })}
+          </div>
+          <div style={{padding:"12px 16px 0"}}>
+          {proveedores.filter(p=>provTab==="todos"||(p.estado||"Activo")===provTab).map(p => {
             const act = reclamos.filter(r => r.proveedor === p.nombre && r.estado !== "Cerrado").length;
             const tot = reclamos.filter(r => r.proveedor === p.nombre).length;
             const estColor = p.estado==="Activo"?{bg:"#D1FAE5",t:"#065F46"}:p.estado==="Inactivo"?{bg:"#FEF3C7",t:"#92400E"}:{bg:"#FEE2E2",t:"#991B1B"};
@@ -1095,6 +1148,7 @@ function App() {
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -1114,20 +1168,22 @@ function App() {
           {/* ── INQUILINOS ── */}
           {portalTab==="inq" && (
             <div style={{padding:"0 16px"}}>
-              {PROPS_DATA.filter(p=>!portalBusq||p.dir.toLowerCase().includes(portalBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(portalBusq.toLowerCase())).map((prop,i,arr)=>{
+              {(propiedades.length>0?propiedades:PROPS_DATA).filter(p=>!portalBusq||p.dir.toLowerCase().includes(portalBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(portalBusq.toLowerCase())).map((prop)=>{
                 const link = portalLink({portal:'inq', dir:encodeURIComponent(prop.dir)});
                 const recProp = reclamos.filter(r=>r.propiedad===prop.dir&&r.estado!=="Cerrado").length;
+                const telNum = (prop.telInq||"").replace(/\D/g,"");
+                const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de reclamos:\n${link}`)}` : `https://wa.me/?text=${encodeURIComponent(`Houscare — Portal de ${prop.dir}:\n${link}`)}`;
                 return (
                   <div key={prop.id} style={{...CARD,marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                       <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",flex:1,marginRight:8}}>{prop.dir}</div>
                       {recProp>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8,flexShrink:0}}>⚠️ {recProp} activo{recProp!==1?"s":""}</span>}
                     </div>
-                    {prop.inquilino&&<div style={{fontSize:12,color:"#64748B",marginBottom:8}}>👤 {prop.inquilino}</div>}
+                    {prop.inquilino&&<div style={{fontSize:12,color:"#64748B",marginBottom:2}}>👤 {prop.inquilino}</div>}
+                    {prop.telInq&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:6}}>📞 {prop.telInq}</div>}
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"inq",dir:prop.dir})} style={{...BB,flex:1,fontSize:11,padding:"8px 0"}}>Entrar →</button>
-                      <button onClick={()=>copyLink(link)} style={{...BG,flex:1,fontSize:11,padding:"8px 0"}}>🔗 Copiar link</button>
-                      <a href={waLink(link,prop.inquilino||prop.dir)} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>
+                      <button onClick={()=>setPortal({type:"inq",dir:prop.dir,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      <a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>
                     </div>
                   </div>
                 );
@@ -1141,6 +1197,8 @@ function App() {
               {proveedores.filter(p=>!portalBusq||p.nombre.toLowerCase().includes(portalBusq.toLowerCase())||p.rubro.toLowerCase().includes(portalBusq.toLowerCase())).map(p=>{
                 const link = portalLink({portal:'prov', id:p.id});
                 const activos = reclamos.filter(r=>r.proveedor===p.nombre&&r.estado!=="Cerrado").length;
+                const telNum = (p.tel||"").replace(/\D/g,"");
+                const waDirecto = telNum ? `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tus trabajos asignados:\n${link}`)}` : null;
                 return (
                   <div key={p.id} style={{...CARD,marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
@@ -1151,9 +1209,8 @@ function App() {
                     {p.notas&&<div style={{fontSize:11,color:"#64748B",marginBottom:2,fontStyle:"italic"}}>"{p.notas}"</div>}
                     <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>📋 {activos} trabajo{activos!==1?"s":""} activo{activos!==1?"s":""}</div>
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,flex:1,fontSize:11,padding:"8px 0"}}>Entrar →</button>
-                      <button onClick={()=>copyLink(link)} style={{...BG,flex:1,fontSize:11,padding:"8px 0"}}>🔗 Copiar link</button>
-                      {p.tel&&<a href={waLink(link,p.nombre)} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                      <button onClick={()=>setPortal({type:"prov",id:p.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      {waDirecto&&<a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                     </div>
                   </div>
                 );
@@ -1164,10 +1221,12 @@ function App() {
           {/* ── PROPIETARIOS ── */}
           {portalTab==="own" && (
             <div style={{padding:"0 16px"}}>
-              {OWNERS.filter(o=>!portalBusq||o.nombre.toLowerCase().includes(portalBusq.toLowerCase())||o.email.toLowerCase().includes(portalBusq.toLowerCase())).map(o=>{
+              {(propietarios.length>0?propietarios:OWNERS).filter(o=>!portalBusq||o.nombre.toLowerCase().includes(portalBusq.toLowerCase())).map(o=>{
                 const link = portalLink({portal:'own', id:o.id});
-                const dirs = PROPS_DATA.filter(p=>p.ownerId===o.id).map(p=>p.dir);
+                const dirs = (propiedades.length>0?propiedades:PROPS_DATA).filter(p=>p.ownerId===o.id).map(p=>p.dir);
                 const pa = reclamos.filter(r=>dirs.includes(r.propiedad)&&r.aprobacion==="pendiente").length;
+                const telNum = (o.tel||"").replace(/\D/g,"");
+                const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de propietario:\n${link}`)}` : null;
                 return (
                   <div key={o.id} style={{...CARD,marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -1175,11 +1234,11 @@ function App() {
                       {pa>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ {pa} pendiente{pa!==1?"s":""}</span>}
                     </div>
                     <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>🏠 {dirs.length} propiedad{dirs.length!==1?"es":""}</div>
+                    {o.tel&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:2}}>📞 {o.tel}</div>}
                     {o.email&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>✉️ {o.email}</div>}
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"own",id:o.id})} style={{...BB,flex:1,fontSize:11,padding:"8px 0"}}>Entrar →</button>
-                      <button onClick={()=>copyLink(link)} style={{...BG,flex:1,fontSize:11,padding:"8px 0"}}>🔗 Copiar link</button>
-                      {o.tel&&<a href={waLink(link,o.nombre)} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                      <button onClick={()=>setPortal({type:"own",id:o.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      {waDirecto&&<a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                     </div>
                   </div>
                 );
