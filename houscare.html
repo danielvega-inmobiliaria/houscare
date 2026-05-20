@@ -328,13 +328,23 @@ function App() {
   const [fEst,       setFEst]       = useState("Todos");
   const [fPrio,      setFPrio]      = useState("Todos");
   const [showFil,    setShowFil]    = useState(false);
-  const [portal,     setPortal]     = useState(null);
+  const [portal,     setPortal]     = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const type = p.get('portal');
+    if (type==='inq')  return { type:'inq',  dir: decodeURIComponent(p.get('dir')||'') };
+    if (type==='prov') return { type:'prov', id: p.get('id') };
+    if (type==='own')  return { type:'own',  id: p.get('id') };
+    return null;
+  });
   const [inqF,       setInqF]       = useState(EIF);
   const [showProvForm,setShowProvForm] = useState(false);
   const [provForm,    setProvForm]    = useState({nombre:"",rubro:"",tel:"",email:"",zona:"",notas:""});
   const [inqTab,      setInqTab]      = useState("nuevo");
   const [inqOk,      setInqOk]      = useState(null);
   const [toast,      setToast]      = useState(null);
+  const [portalTab,  setPortalTab]  = useState("inq");
+  const [portalBusq, setPortalBusq] = useState("");
+  const [ratingModal,setRatingModal]= useState(null); // {id, provNombre, provId, val}
 
   // ── Carga inicial desde Supabase + suscripción real-time ──
   useEffect(() => {
@@ -371,6 +381,24 @@ function App() {
   }, []);
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  // ── Links directos a portales ──
+  const BASE_URL = window.location.origin + window.location.pathname;
+  const portalLink = (params) => BASE_URL + '?' + new URLSearchParams(params).toString();
+  const copyLink = (url) => { navigator.clipboard.writeText(url).then(()=>showToast("🔗 Link copiado")); };
+  const waLink = (url, nombre) => `https://wa.me/?text=${encodeURIComponent(`Houscare — Tu portal de acceso, ${nombre}:\n${url}`)}`;
+
+  // ── Calificación de proveedor ──
+  const updateProvCal = async (provNombre, rating) => {
+    const allRatings = reclamos
+      .filter(r => r.proveedor === provNombre && r.ratingAdmin)
+      .map(r => r.ratingAdmin);
+    allRatings.push(rating);
+    const avg = Math.round((allRatings.reduce((s,v)=>s+v,0)/allRatings.length)*10)/10;
+    setProveedores(ps => ps.map(p => p.nombre === provNombre ? {...p, cal:avg} : p));
+    const prov = proveedores.find(p => p.nombre === provNombre);
+    if (prov) await sb.from('proveedores').update({cal:avg}).eq('id', prov.id);
+  };
 
   // ── Stats ──
   const st = useMemo(() => {
@@ -453,10 +481,18 @@ function App() {
     }
     setForm(EF); setShowForm(false);
   };
-  const cerrar = async id => {
-    setReclamos(p => p.map(r => r.id === id ? { ...r, estado:"Cerrado", ultimaAct:today() } : r)); // optimistic
-    await sb.from('reclamos').update({ estado:'Cerrado', ultima_act:today() }).eq('id', id);
-    setDetId(null); showToast("✅ Reclamo cerrado");
+  const cerrar = async (id, rating=null) => {
+    const rec = reclamos.find(r => r.id === id);
+    // Si tiene proveedor y no vino rating, mostrar modal
+    if (rec?.proveedor && rating === null) {
+      setRatingModal({ id, provNombre: rec.proveedor, provId: proveedores.find(p=>p.nombre===rec.proveedor)?.id, val: 0 });
+      return;
+    }
+    const updates = { estado:'Cerrado', ultima_act:today(), ...(rating ? {prov_aceptado: String(rating)} : {}) };
+    setReclamos(p => p.map(r => r.id === id ? { ...r, estado:"Cerrado", ultimaAct:today(), ratingAdmin:rating } : r));
+    await sb.from('reclamos').update(updates).eq('id', id);
+    if (rating && rec?.proveedor) await updateProvCal(rec.proveedor, rating);
+    setDetId(null); setRatingModal(null); showToast("✅ Reclamo cerrado");
   };
   const aprobar = async (id, dec) => {
     setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec } : r)); // optimistic
@@ -856,50 +892,92 @@ function App() {
 
       {/* ── PORTALES ── */}
       {tab === "portales" && (
-        <div style={{padding:"0 16px 24px"}}>
-          <div style={{background:"#EFF6FF",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
-            <div style={{fontSize:14,fontWeight:700,color:"#1D44AA",marginBottom:4}}>🔗 Portales de acceso</div>
-            <div style={{fontSize:13,color:"#3B82F6",lineHeight:1.5}}>En producción, cada botón "Copiar link" generará una URL única para compartir.</div>
-          </div>
-          {/* Portal Inquilino */}
-          <div style={CARD}>
-            <div style={{fontSize:12,fontWeight:800,color:"#0F1E3C",marginBottom:14,textTransform:"uppercase",letterSpacing:.8}}>🏠 Portal Inquilino</div>
-            {PROPS_DATA.map((prop,i) => (
-              <div key={prop.id} style={{paddingBottom:12,marginBottom:12,borderBottom:i<PROPS_DATA.length-1?"1px solid #F1F5F9":"none"}}>
-                <div style={{fontSize:13,fontWeight:600,color:"#1a2035",marginBottom:8}}>{prop.dir}</div>
-                <button onClick={()=>setPortal({type:"inq",dir:prop.dir})} style={{...BB,fontSize:12,padding:"9px 0"}}>Entrar al portal →</button>
-              </div>
+        <div style={{paddingBottom:24}}>
+          {/* Sub-tabs */}
+          <div style={{display:"flex",background:"#0F1E3C",padding:"0 16px"}}>
+            {[["inq","🏠 Inquilinos"],["prov","🔧 Proveedores"],["own","👤 Propietarios"]].map(([id,l])=>(
+              <button key={id} onClick={()=>{setPortalTab(id);setPortalBusq("");}} style={{flex:1,background:portalTab===id?"#fff":"transparent",color:portalTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:portalTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
-          {/* Portal Propietario */}
-          <div style={CARD}>
-            <div style={{fontSize:12,fontWeight:800,color:"#0F1E3C",marginBottom:14,textTransform:"uppercase",letterSpacing:.8}}>👤 Portal Propietario</div>
-            {OWNERS.map((ow,i) => {
-              const dirs = PROPS_DATA.filter(p=>p.ownerId===ow.id).map(p=>p.dir);
-              const pa   = reclamos.filter(r=>dirs.includes(r.propiedad)&&r.aprobacion==="pendiente").length;
-              return (
-                <div key={ow.id} style={{paddingBottom:12,marginBottom:12,borderBottom:i<OWNERS.length-1?"1px solid #F1F5F9":"none"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <div style={{fontSize:13,fontWeight:600,color:"#1a2035"}}>{ow.nombre}</div>
-                    {pa > 0 && <span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ {pa} pendiente{pa>1?"s":""}</span>}
+          <div style={{padding:"12px 16px 0"}}>
+            <input placeholder="🔍 Buscar..." value={portalBusq} onChange={e=>setPortalBusq(e.target.value)} style={{...INP,marginBottom:12}}/>
+          </div>
+
+          {/* ── INQUILINOS ── */}
+          {portalTab==="inq" && (
+            <div style={{padding:"0 16px"}}>
+              {PROPS_DATA.filter(p=>!portalBusq||p.dir.toLowerCase().includes(portalBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(portalBusq.toLowerCase())).map((prop,i,arr)=>{
+                const link = portalLink({portal:'inq', dir:encodeURIComponent(prop.dir)});
+                const recProp = reclamos.filter(r=>r.propiedad===prop.dir&&r.estado!=="Cerrado").length;
+                return (
+                  <div key={prop.id} style={{...CARD,marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",flex:1,marginRight:8}}>{prop.dir}</div>
+                      {recProp>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8,flexShrink:0}}>⚠️ {recProp} activo{recProp!==1?"s":""}</span>}
+                    </div>
+                    {prop.inquilino&&<div style={{fontSize:12,color:"#64748B",marginBottom:8}}>👤 {prop.inquilino}</div>}
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>setPortal({type:"inq",dir:prop.dir})} style={{...BB,flex:1,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      <button onClick={()=>copyLink(link)} style={{...BG,flex:1,fontSize:11,padding:"8px 0"}}>🔗 Copiar link</button>
+                      <a href={waLink(link,prop.inquilino||prop.dir)} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>
+                    </div>
                   </div>
-                  <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>{dirs.length} propiedad{dirs.length>1?"es":""} · {ow.email}</div>
-                  <button onClick={()=>setPortal({type:"own",id:ow.id})} style={{...BB,fontSize:12,padding:"9px 0"}}>Entrar al portal →</button>
-                </div>
-              );
-            })}
-          </div>
-          {/* Portal Proveedor */}
-          <div style={CARD}>
-            <div style={{fontSize:12,fontWeight:800,color:"#0F1E3C",marginBottom:14,textTransform:"uppercase",letterSpacing:.8}}>🔧 Portal Proveedor</div>
-            {proveedores.map((p,i) => (
-              <div key={p.id} style={{paddingBottom:12,marginBottom:12,borderBottom:i<proveedores.length-1?"1px solid #F1F5F9":"none"}}>
-                <div style={{fontSize:13,fontWeight:600,color:"#1a2035",marginBottom:2}}>{p.nombre}</div>
-                <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>{p.rubro}</div>
-                <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,fontSize:12,padding:"9px 0"}}>Entrar al portal →</button>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── PROVEEDORES ── */}
+          {portalTab==="prov" && (
+            <div style={{padding:"0 16px"}}>
+              {proveedores.filter(p=>!portalBusq||p.nombre.toLowerCase().includes(portalBusq.toLowerCase())||p.rubro.toLowerCase().includes(portalBusq.toLowerCase())).map(p=>{
+                const link = portalLink({portal:'prov', id:p.id});
+                const activos = reclamos.filter(r=>r.proveedor===p.nombre&&r.estado!=="Cerrado").length;
+                return (
+                  <div key={p.id} style={{...CARD,marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{p.nombre}</div>
+                      <Stars n={p.cal||5}/>
+                    </div>
+                    <div style={{fontSize:11,color:"#1D44AA",marginBottom:2}}>🔧 {p.rubro}{p.zona?" · 📍 "+p.zona:""}</div>
+                    {p.notas&&<div style={{fontSize:11,color:"#64748B",marginBottom:2,fontStyle:"italic"}}>"{p.notas}"</div>}
+                    <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>📋 {activos} trabajo{activos!==1?"s":""} activo{activos!==1?"s":""}</div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,flex:1,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      <button onClick={()=>copyLink(link)} style={{...BG,flex:1,fontSize:11,padding:"8px 0"}}>🔗 Copiar link</button>
+                      {p.tel&&<a href={waLink(link,p.nombre)} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── PROPIETARIOS ── */}
+          {portalTab==="own" && (
+            <div style={{padding:"0 16px"}}>
+              {OWNERS.filter(o=>!portalBusq||o.nombre.toLowerCase().includes(portalBusq.toLowerCase())||o.email.toLowerCase().includes(portalBusq.toLowerCase())).map(o=>{
+                const link = portalLink({portal:'own', id:o.id});
+                const dirs = PROPS_DATA.filter(p=>p.ownerId===o.id).map(p=>p.dir);
+                const pa = reclamos.filter(r=>dirs.includes(r.propiedad)&&r.aprobacion==="pendiente").length;
+                return (
+                  <div key={o.id} style={{...CARD,marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{o.nombre}</div>
+                      {pa>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ {pa} pendiente{pa!==1?"s":""}</span>}
+                    </div>
+                    <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>🏠 {dirs.length} propiedad{dirs.length!==1?"es":""}</div>
+                    {o.email&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>✉️ {o.email}</div>}
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>setPortal({type:"own",id:o.id})} style={{...BB,flex:1,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      <button onClick={()=>copyLink(link)} style={{...BG,flex:1,fontSize:11,padding:"8px 0"}}>🔗 Copiar link</button>
+                      {o.tel&&<a href={waLink(link,o.nombre)} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -924,6 +1002,8 @@ function App() {
               const sKey=form.sector.toLowerCase().split(/[/\s]/)[0];
               const mp=proveedores.filter(p=>p.rubro.toLowerCase().includes(sKey)||sKey.includes(p.rubro.toLowerCase().split(/[/\s]/)[0]));
               const op=proveedores.filter(p=>!mp.includes(p));
+              const selProv = proveedores.find(p=>p.nombre===form.proveedor);
+              const recAct = selProv ? reclamos.filter(r=>r.proveedor===selProv.nombre&&r.estado!=="Cerrado").length : 0;
               return <div style={{marginBottom:14}}>
                 <label style={LBL}>Proveedor{mp.length>0&&<span style={{fontSize:10,color:"#059669",fontWeight:700,marginLeft:6}}>● {mp.length} para "{form.sector}"</span>}</label>
                 <select value={form.proveedor} onChange={e=>setForm(p=>({...p,proveedor:e.target.value}))} style={INP}>
@@ -931,6 +1011,16 @@ function App() {
                   {mp.length>0&&<optgroup label={`✓ Para ${form.sector}`}>{mp.map(p=><option key={p.id}>{p.nombre}</option>)}</optgroup>}
                   {op.length>0&&<optgroup label="Otros proveedores">{op.map(p=><option key={p.id}>{p.nombre}</option>)}</optgroup>}
                 </select>
+                {selProv&&<div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:10,padding:"10px 12px",marginTop:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <span style={{fontWeight:700,fontSize:13,color:"#0F1E3C"}}>{selProv.nombre}</span>
+                    <Stars n={selProv.cal||5}/>
+                  </div>
+                  <div style={{fontSize:11,color:"#0369A1",marginBottom:2}}>🔧 {selProv.rubro}{selProv.zona?" · 📍 "+selProv.zona:""}</div>
+                  <div style={{fontSize:11,color:"#475569",marginBottom:2}}>📋 {recAct} trabajo{recAct!==1?"s":""} activo{recAct!==1?"s":""}</div>
+                  {selProv.notas&&<div style={{fontSize:11,color:"#64748B",fontStyle:"italic"}}>"{selProv.notas}"</div>}
+                  {selProv.tel&&<a href={`https://wa.me/${selProv.tel.replace(/\D/g,"")}`} target="_blank" style={{display:"inline-block",marginTop:6,fontSize:11,color:"#059669",fontWeight:700,textDecoration:"none"}}>💬 Contactar por WhatsApp</a>}
+                </div>}
               </div>;
             })()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
@@ -1049,6 +1139,33 @@ function App() {
             ) : (
               <div style={{textAlign:"center",color:"#059669",fontSize:14,fontWeight:600}}>✅ Reclamo cerrado el {fmtDate(det.ultimaAct)}</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CALIFICACIÓN DE PROVEEDOR ── */}
+      {ratingModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:360}}>
+            <div style={{textAlign:"center",marginBottom:16}}>
+              <div style={{fontSize:36,marginBottom:8}}>⭐</div>
+              <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:900,color:"#0F1E3C"}}>Calificá al proveedor</h3>
+              <p style={{margin:0,fontSize:13,color:"#64748B"}}>{ratingModal.provNombre}</p>
+            </div>
+            <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:20}}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} onClick={()=>setRatingModal(m=>({...m,val:n}))}
+                  style={{fontSize:32,background:"none",border:"none",cursor:"pointer",
+                    color:n<=(ratingModal.val||0)?"#F59E0B":"#E2E8F0",transition:"color .15s"}}>★</button>
+              ))}
+            </div>
+            <div style={{fontSize:12,color:"#94A3B8",textAlign:"center",marginBottom:16}}>
+              {ratingModal.val===0?"Tocá las estrellas para calificar":["","⭐ Muy malo","⭐⭐ Regular","⭐⭐⭐ Bueno","⭐⭐⭐⭐ Muy bueno","⭐⭐⭐⭐⭐ Excelente"][ratingModal.val]}
+            </div>
+            <button onClick={()=>cerrar(ratingModal.id, ratingModal.val||null)} style={{...BB,marginBottom:8}}>
+              {ratingModal.val>0?"✅ Cerrar y calificar":"Cerrar sin calificar"}
+            </button>
+            <button onClick={()=>setRatingModal(null)} style={BG}>Cancelar</button>
           </div>
         </div>
       )}
