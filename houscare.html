@@ -50,6 +50,7 @@ const daysDiff = d => d ? Math.floor((Date.now() - new Date(d)) / 86400000) : 0;
 const fmtDate  = d => { if (!d) return "—"; const [y,m,dd] = d.split("-"); return `${dd}/${m}/${y}`; };
 const fmt$     = n => n ? `$${Number(n).toLocaleString("es-AR")}` : "—";
 const today    = () => new Date().toISOString().split("T")[0];
+const now      = () => { const d = new Date(); return d.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"}); };
 const readFile = (file, cb) => { const r = new FileReader(); r.onload = e => cb(e.target.result); r.readAsDataURL(file); };
 
 // ─── Datos base ───────────────────────────────────────────────────────────────
@@ -231,7 +232,9 @@ const toRow = r => ({
   descripcion: r.descripcion, notas: r.notas||'',
   fotos: r.fotos||[], aprobacion: r.aprobacion||null,
   prov_aceptado: r.provAceptado||null, mensajes: r.mensajes||[],
-  comentario_cierre: r.comentarioCierre||'', rating_inq: r.ratingInq||0, comentario_inq: r.comentarioInq||''
+  comentario_cierre: r.comentarioCierre||'', rating_inq: r.ratingInq||0, comentario_inq: r.comentarioInq||'',
+  fecha_asignacion: r.fechaAsignacion||null, fecha_aceptacion: r.fechaAceptacion||null,
+  fecha_aprobacion: r.fechaAprobacion||null, cobrado: r.cobrado||false
 });
 // snake_case → camelCase (al leer de Supabase)
 const fromRow = row => ({
@@ -246,7 +249,9 @@ const fromRow = row => ({
   descripcion: row.descripcion, notas: row.notas||'',
   fotos: row.fotos||[], aprobacion: row.aprobacion||null,
   provAceptado: row.prov_aceptado||null, mensajes: row.mensajes||[],
-  comentarioCierre: row.comentario_cierre||'', ratingInq: Number(row.rating_inq)||0, comentarioInq: row.comentario_inq||''
+  comentarioCierre: row.comentario_cierre||'', ratingInq: Number(row.rating_inq)||0, comentarioInq: row.comentario_inq||'',
+  fechaAsignacion: row.fecha_asignacion||null, fechaAceptacion: row.fecha_aceptacion||null,
+  fechaAprobacion: row.fecha_aprobacion||null, cobrado: row.cobrado||false
 });
 // Propiedades
 const toRowProp = p => ({ id:p.id, dir:p.dir, tipo:p.tipo||'Casa', owner_id:p.ownerId||'', inquilino:p.inquilino||'', email_inq:p.emailInq||'', tel_inq:p.telInq||'' });
@@ -412,6 +417,106 @@ function ChatPanel({ reclamo, autor, onSend }) {
       <div style={{display:"flex",gap:8}}>
         <input value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Escribí un mensaje..." style={{flex:1,padding:"8px 12px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:12,outline:"none",background:"#fff",fontFamily:"inherit"}}/>
         <button onClick={send} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>➤</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tarjeta de trabajo — Portal Proveedor ───────────────────────────────────
+function ProvJobCard({ r, onAccept, onReject, onTerminado, onCobrado, onMsg, onFotos, showFn }) {
+  const [presup, setPresup] = React.useState(r.costoEst > 0 ? String(r.costoEst) : "");
+  const CARD2 = { background:"#fff", borderRadius:14, padding:"14px 16px", boxShadow:"0 1px 6px rgba(0,0,0,.07)", marginBottom:10 };
+  const INP2  = { flex:1, padding:"8px 10px", borderRadius:8, border:"1.5px solid #E2E8F0", fontSize:13, outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
+  const dias  = daysDiff(r.fecha);
+  const savePresup = async () => {
+    if (!presup) return;
+    const val = Number(presup);
+    await sb.from('reclamos').update({ costo_est:val }).eq('id', r.id);
+    showFn("💰 Presupuesto guardado");
+  };
+  return (
+    <div style={{...CARD2, borderLeft:`4px solid ${PC[r.prioridad]?.d||"#CBD5E1"}`}}>
+      {/* Header: ID + días + estado */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:10,fontWeight:700,background:dias>7?"#FEE2E2":"#FEF3C7",color:dias>7?"#991B1B":"#92400E",padding:"2px 7px",borderRadius:20}}>⏱ {dias}d</span>
+          <Badge label={r.estado} sm/>
+        </div>
+      </div>
+
+      {/* Propiedad y sector */}
+      <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+      <div style={{fontSize:12,color:"#64748B",marginBottom:8}}>{r.sector} · Inquilino: {r.inquilino}</div>
+
+      {/* Grilla de fechas */}
+      <div style={{background:"#F8FAFC",borderRadius:10,padding:"8px 12px",marginBottom:10,display:"grid",gridTemplateColumns:"1fr 1fr",rowGap:6,columnGap:12}}>
+        {[
+          ["📅 Reclamo",   fmtDate(r.fecha)],
+          ["🔧 Asignado",  r.fechaAsignacion ? fmtDate(r.fechaAsignacion) : "—"],
+          ["✅ Aceptado",  r.fechaAceptacion ? fmtDate(r.fechaAceptacion) : "—"],
+          ["🏁 Aprobado",  r.fechaAprobacion ? fmtDate(r.fechaAprobacion) : "—"],
+        ].map(([lbl,val])=>(
+          <div key={lbl}>
+            <div style={{fontSize:9,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.6}}>{lbl}</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#0F1E3C"}}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Descripción */}
+      <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
+
+      {/* Fotos del reclamo */}
+      {r.fotos && r.fotos.length > 0 && (
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Fotos del reclamo</div>
+          <Galeria fotos={r.fotos}/>
+        </div>
+      )}
+
+      {/* Presupuesto */}
+      <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+        <div style={{fontSize:10,fontWeight:700,color:"#0369A1",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💰 Presupuesto</div>
+        <div style={{display:"flex",gap:6}}>
+          <input type="number" value={presup} onChange={e=>setPresup(e.target.value)} placeholder="Ingresá el monto ($)" style={INP2}/>
+          <button onClick={savePresup} disabled={!presup} style={{background:presup?"#1D44AA":"#CBD5E1",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,fontSize:12,cursor:presup?"pointer":"default"}}>Guardar</button>
+        </div>
+        {r.costoEst > 0 && <div style={{fontSize:11,color:"#0369A1",marginTop:4}}>Último registrado: <strong>{fmt$(r.costoEst)}</strong></div>}
+      </div>
+
+      {/* Aceptar / Rechazar */}
+      {r.provAceptado === "pendiente" && (
+        <div style={{background:"#FEF3C7",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#92400E",marginBottom:8}}>⏳ ¿Podés tomar este trabajo?</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>onAccept(r.id)} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>✅ Aceptar</button>
+            <button onClick={()=>onReject(r.id)} style={{flex:1,background:"#EF4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>❌ Rechazar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Chat (solo cuando aceptado) */}
+      {r.provAceptado === "aceptado" && (
+        <>
+          <div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginBottom:8}}>✅ Trabajo aceptado — podés coordinar con el inquilino</div>
+          <ChatPanel reclamo={r} autor="Proveedor" onSend={onMsg}/>
+        </>
+      )}
+
+      {/* Botones inferiores: fotos + terminado/cobrado */}
+      <div style={{display:"flex",gap:8}}>
+        <input type="file" accept="image/*" multiple id={`pf-${r.id}`} style={{display:"none"}} onChange={e=>{ onFotos(r.id,"Proveedor",e.target.files); e.target.value=""; showFn("📷 Foto subida"); }}/>
+        <label htmlFor={`pf-${r.id}`} style={{flex:1,background:"#F1F5F9",color:"#475569",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",display:"block"}}>📷 Subir fotos</label>
+        {r.estado !== "Resuelto" && r.estado !== "Pendiente" && r.estado !== "Cerrado" && (
+          <button onClick={()=>onTerminado(r.id)} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>✅ Terminado</button>
+        )}
+        {r.estado === "Resuelto" && !r.cobrado && (
+          <button onClick={()=>onCobrado(r.id)} style={{flex:1,background:"#7C3AED",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>💰 Cobrado</button>
+        )}
+        {r.cobrado && (
+          <div style={{flex:1,background:"#F0FDF4",color:"#065F46",border:"1.5px solid #BBF7D0",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,textAlign:"center"}}>✅ Cobrado</div>
+        )}
       </div>
     </div>
   );
@@ -602,7 +707,7 @@ function App() {
   const sendMsg = async (recId, autor, texto) => {
     const rec = reclamos.find(r=>r.id===recId);
     if(!rec) return;
-    const newMsg = {autor, texto, fecha:today()};
+    const newMsg = {autor, texto, fecha:now()};
     const msgs = [...(rec.mensajes||[]), newMsg];
     setReclamos(p=>p.map(r=>r.id===recId?{...r,mensajes:msgs}:r));
     await sb.from('reclamos').update({mensajes:msgs}).eq('id',recId);
@@ -689,13 +794,13 @@ function App() {
     if (editId) {
       const orig = reclamos.find(r => r.id === editId);
       const provCambio = base.proveedor && base.proveedor !== orig?.proveedor;
-      const updated = { ...orig, ...base, ultimaAct:t, provAceptado:provCambio?"pendiente":orig?.provAceptado };
+      const updated = { ...orig, ...base, ultimaAct:t, provAceptado:provCambio?"pendiente":orig?.provAceptado, fechaAsignacion:provCambio?t:orig?.fechaAsignacion };
       setReclamos(p => p.map(r => r.id === editId ? updated : r));
       await sb.from('reclamos').update(toRow(updated)).eq('id', editId);
       if (provCambio) provNuevo = base.proveedor;
       setEditId(null); showToast("✅ Reclamo actualizado");
     } else {
-      const newRec = { id:nextId(), fecha:t, ultimaAct:t, fotos:[], aprobacion:null, provAceptado:base.proveedor?"pendiente":null, mensajes:[], comentarioCierre:'', ratingInq:0, comentarioInq:'', ...base };
+      const newRec = { id:nextId(), fecha:t, ultimaAct:t, fotos:[], aprobacion:null, provAceptado:base.proveedor?"pendiente":null, mensajes:[], comentarioCierre:'', ratingInq:0, comentarioInq:'', fechaAsignacion:base.proveedor?t:null, fechaAceptacion:null, fechaAprobacion:null, cobrado:false, ...base };
       setReclamos(p => [newRec, ...p]);
       await sb.from('reclamos').insert(toRow(newRec));
       if (base.proveedor) provNuevo = base.proveedor;
@@ -731,8 +836,10 @@ function App() {
     showToast("⭐ Gracias por tu calificación");
   };
   const aprobar = async (id, dec) => {
-    setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec } : r)); // optimistic
-    await sb.from('reclamos').update({ aprobacion:dec }).eq('id', id);
+    const extra = dec === "aprobada" ? { fechaAprobacion:today() } : {};
+    setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec, ...extra } : r));
+    const dbExtra = dec === "aprobada" ? { fecha_aprobacion:today() } : {};
+    await sb.from('reclamos').update({ aprobacion:dec, ...dbExtra }).eq('id', id);
     showToast(dec === "aprobada" ? "✅ Aprobado" : "❌ Rechazado");
   };
   const solAprob = async id => {
@@ -866,6 +973,31 @@ function App() {
   if (portal?.type === "prov") {
     const prov = proveedores.find(p => p.id === portal.id);
     const mis  = reclamos.filter(r => r.proveedor === prov?.nombre && r.estado !== "Cerrado");
+
+    const handleAccept = async (id) => {
+      const t = today();
+      setReclamos(p=>p.map(x=>x.id===id?{...x,provAceptado:"aceptado",estado:"En proceso",ultimaAct:t,fechaAceptacion:t}:x));
+      await sb.from('reclamos').update({provAceptado:"aceptado",estado:"En proceso",ultima_act:t,fecha_aceptacion:t}).eq('id',id);
+      showToast("✅ Trabajo aceptado");
+    };
+    const handleReject = async (id) => {
+      const t = today();
+      setReclamos(p=>p.map(x=>x.id===id?{...x,provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultimaAct:t}:x));
+      await sb.from('reclamos').update({provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultima_act:t}).eq('id',id);
+      showToast("❌ Trabajo rechazado");
+    };
+    const handleTerminado = async (id) => {
+      const t = today();
+      setReclamos(p=>p.map(x=>x.id===id?{...x,estado:"Resuelto",ultimaAct:t}:x));
+      await sb.from('reclamos').update({estado:"Resuelto",ultima_act:t}).eq('id',id);
+      showToast("✅ Marcado como terminado");
+    };
+    const handleCobrado = async (id) => {
+      setReclamos(p=>p.map(x=>x.id===id?{...x,cobrado:true}:x));
+      await sb.from('reclamos').update({cobrado:true}).eq('id',id);
+      showToast("💰 ¡Cobro registrado!");
+    };
+
     return (
       <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
         <div style={PH}>
@@ -884,35 +1016,15 @@ function App() {
           </div>
           {mis.length === 0 && <div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>Sin trabajos pendientes</div></div>}
           {mis.map(r => (
-            <div key={r.id} style={{...CARD,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span><Badge label={r.estado} sm/></div>
-              <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
-              <div style={{fontSize:12,color:"#64748B",marginBottom:6}}>{r.sector} · Inquilino: {r.inquilino}</div>
-              <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
-              {r.fotos && r.fotos.length > 0 && <div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Fotos del reclamo</div><Galeria fotos={r.fotos}/></div>}
-              {r.provAceptado==="pendiente"&&(
-                <div style={{background:"#FEF3C7",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#92400E",marginBottom:8}}>⏳ ¿Podés tomar este trabajo?</div>
-                  <div style={{display:"flex",gap:8}}>
-                    <button onClick={async()=>{const upd={provAceptado:"aceptado",estado:"En proceso",ultima_act:today()};setReclamos(p=>p.map(x=>x.id===r.id?{...x,provAceptado:"aceptado",estado:"En proceso",ultimaAct:today()}:x));await sb.from('reclamos').update(upd).eq('id',r.id);showToast("✅ Trabajo aceptado");}} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>✅ Aceptar</button>
-                    <button onClick={async()=>{const upd={provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultima_act:today()};setReclamos(p=>p.map(x=>x.id===r.id?{...x,provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultimaAct:today()}:x));await sb.from('reclamos').update(upd).eq('id',r.id);showToast("❌ Trabajo rechazado");}} style={{flex:1,background:"#EF4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>❌ Rechazar</button>
-                  </div>
-                </div>
-              )}
-              {r.provAceptado==="aceptado"&&(
-                <>
-                  <div style={{background:"#D1FAE5",borderRadius:8,padding:"6px 10px",fontSize:12,color:"#065F46",fontWeight:600,marginBottom:8}}>✅ Trabajo aceptado — podés coordinar con el inquilino</div>
-                  <ChatPanel reclamo={r} autor="Proveedor" onSend={sendMsg}/>
-                </>
-              )}
-              <div style={{display:"flex",gap:8}}>
-                <input type="file" accept="image/*" multiple id={`pf-${r.id}`} style={{display:"none"}} onChange={e=>{addFotosR(r.id,"Proveedor",e.target.files);e.target.value="";showToast("📷 Foto subida");}}/>
-                <label htmlFor={`pf-${r.id}`} style={{flex:1,background:"#F1F5F9",color:"#475569",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",display:"block"}}>📷 Subir fotos</label>
-                {r.estado !== "Resuelto" && r.estado !== "Pendiente" && (
-                  <button onClick={async()=>{setReclamos(p=>p.map(x=>x.id===r.id?{...x,estado:"Resuelto",ultimaAct:today()}:x));await sb.from('reclamos').update({estado:'Resuelto',ultima_act:today()}).eq('id',r.id);showToast("✅ Marcado como terminado");}} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>✅ Terminado</button>
-                )}
-              </div>
-            </div>
+            <ProvJobCard key={r.id} r={r}
+              onAccept={handleAccept}
+              onReject={handleReject}
+              onTerminado={handleTerminado}
+              onCobrado={handleCobrado}
+              onMsg={sendMsg}
+              onFotos={addFotosR}
+              showFn={showToast}
+            />
           ))}
         </div>
       </div>
@@ -1326,7 +1438,7 @@ function App() {
             </div>
             <div style={{marginBottom:14}}><label style={LBL}>Dirección *</label><input placeholder="Ej: Av. San Martín 1234" value={propForm.dir} onChange={e=>setPropForm(p=>({...p,dir:e.target.value}))} style={INP}/></div>
             <div style={{marginBottom:14}}><label style={LBL}>Tipo</label><select value={propForm.tipo} onChange={e=>setPropForm(p=>({...p,tipo:e.target.value}))} style={INP}>{TIPOS_PROP.map(o=><option key={o}>{o}</option>)}</select></div>
-            <div style={{marginBottom:14}}><label style={LBL}>Propietario</label><select value={propForm.ownerId} onChange={e=>setPropForm(p=>({...p,ownerId:e.target.value}))} style={INP}><option value="">— Sin propietario —</option>{propietarios.map(o=><option key={o.id} value={o.id}>{o.nombre}</option>)}</select></div>
+            <div style={{marginBottom:14}}><label style={LBL}>Propietario</label><select value={propForm.ownerId} onChange={e=>setPropForm(p=>({...p,ownerId:e.target.value}))} style={INP}><option value="">— Sin propietario —</option>{(propietarios.length>0?propietarios:OWNERS).map(o=><option key={o.id} value={o.id}>{o.nombre}</option>)}</select></div>
             <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:10,padding:"12px",marginBottom:14}}>
               <div style={{fontSize:11,fontWeight:700,color:"#0369A1",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Datos del Inquilino</div>
               <div style={{marginBottom:10}}><label style={LBL}>Nombre completo</label><input placeholder="Apellido, Nombre" value={propForm.inquilino} onChange={e=>setPropForm(p=>({...p,inquilino:e.target.value}))} style={INP}/></div>
