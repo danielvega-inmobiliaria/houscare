@@ -219,6 +219,25 @@ const SUPABASE_URL = 'https://pgtnqlsdwggxbpctedcz.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBndG5xbHNkd2dneGJwY3RlZGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTkwNjgsImV4cCI6MjA5NDc5NTA2OH0.R0wFb5nwAjRss_aAf8hItRcxs6DJp9RSMX86ySKkgZI';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ─── API REST (backend Flask, Camino B — reemplazo gradual de Supabase) ───────
+// Fase 2 (09/08/2026): arranca el reemplazo real de sb.from(...) por esta API,
+// empezando por el CRUD del admin. Los 3 portales externos (inquilino/proveedor/
+// propietario) siguen 100% en Supabase por ahora — quedan para la próxima sesión,
+// cuando se adapten a portal_token en vez de dir/id en la URL (ver PROYECTO.md).
+const API_BASE = 'https://web-production-2c8f2.up.railway.app';
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    method: opts.method || 'GET',
+    credentials: 'include', // manda la cookie de sesión (login admin, sin login en portales)
+    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* respuesta vacía, ej. 204 */ }
+  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  return data;
+}
+
 // camelCase → snake_case (para guardar en Supabase)
 const toRow = r => ({
   id: r.id, fecha: r.fecha, ultima_act: r.ultimaAct,
@@ -566,55 +585,96 @@ function App() {
   const [portalTab,  setPortalTab]  = useState("inq");
   const [portalBusq, setPortalBusq] = useState("");
   const [ratingModal,setRatingModal]= useState(null); // {id, provNombre, provId, val}
+  // ── Auth admin (API REST — no aplica a los portales, que siguen sin login) ──
+  const [usuario,    setUsuario]    = useState(null);
+  const [loginForm,  setLoginForm]  = useState({ email:"", password:"" });
+  const [loginErr,   setLoginErr]   = useState("");
+  const [loginBusy,  setLoginBusy]  = useState(false);
 
-  // ── Carga inicial desde Supabase + suscripción real-time ──
+  // ── Carga de datos del admin vía API REST (Fase 2) ──
+  // Sin auto-seed: si la org está recién creada en Postgres, arranca vacía
+  // (a diferencia del Supabase de abajo, que sembraba PROPS_DATA/OWNERS/
+  // PROVEEDORES_INIT si la tabla estaba vacía). La migración de los datos
+  // reales queda para Fase 5 (ver PROYECTO.md).
+  const loadAdminData = async () => {
+    const [propsRes, ownRes, provRes, recRes] = await Promise.all([
+      apiFetch('/api/propiedades'),
+      apiFetch('/api/propietarios'),
+      apiFetch('/api/proveedores'),
+      apiFetch('/api/reclamos'),
+    ]);
+    setPropiedades(propsRes.propiedades);
+    setPropietarios(ownRes.propietarios);
+    setProveedores(provRes.proveedores);
+    setReclamos(recRes.reclamos);
+  };
+
+  // ── Carga inicial ──
+  // Portales externos (inquilino/proveedor/propietario, vía URL ?portal=...):
+  // siguen 100% en Supabase, sin tocar (incluye suscripción real-time) —
+  // quedan para la próxima sesión (ver PROYECTO.md, "portales al final").
+  // Admin (sin portal en la URL): va por la API REST nueva, atrás de login.
   useEffect(() => {
-    const init = async () => {
-      // Proveedores: si la tabla está vacía, sembramos los iniciales
-      const { data: provData } = await sb.from('proveedores').select('*');
-      if (provData && provData.length > 0) {
-        setProveedores(provData);
-      } else {
-        await sb.from('proveedores').upsert(PROVEEDORES_INIT);
-        setProveedores(PROVEEDORES_INIT);
-      }
-      // Propiedades
-      const { data: propData } = await sb.from('propiedades').select('*').order('dir');
-      if (propData && propData.length > 0) {
-        setPropiedades(propData.map(fromRowProp));
-      } else {
-        await sb.from('propiedades').upsert(PROPS_DATA.map(toRowProp));
-        setPropiedades(PROPS_DATA);
-      }
-      // Propietarios
-      const { data: ownData } = await sb.from('propietarios').select('*').order('nombre');
-      if (ownData && ownData.length > 0) {
-        setPropietarios(ownData.map(fromRowOwner));
-      } else {
-        await sb.from('propietarios').upsert(OWNERS.map(toRowOwner));
-        setPropietarios(OWNERS);
-      }
-      // Reclamos
-      const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
-      if (recData) setReclamos(recData.map(fromRow));
-      setLoading(false);
-    };
-    init();
-
-    // Real-time: cualquier cambio en reclamos se refleja en todos los dispositivos
-    const channel = sb.channel('reclamos-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reclamos' }, payload => {
-        if (payload.eventType === 'INSERT') {
-          setReclamos(p => [fromRow(payload.new), ...p.filter(r => r.id !== payload.new.id)]);
-        } else if (payload.eventType === 'UPDATE') {
-          setReclamos(p => p.map(r => r.id === payload.new.id ? fromRow(payload.new) : r));
-        } else if (payload.eventType === 'DELETE') {
-          setReclamos(p => p.filter(r => r.id !== payload.old.id));
+    if (portal) {
+      const init = async () => {
+        // Proveedores: si la tabla está vacía, sembramos los iniciales
+        const { data: provData } = await sb.from('proveedores').select('*');
+        if (provData && provData.length > 0) {
+          setProveedores(provData);
+        } else {
+          await sb.from('proveedores').upsert(PROVEEDORES_INIT);
+          setProveedores(PROVEEDORES_INIT);
         }
-      })
-      .subscribe();
+        // Propiedades
+        const { data: propData } = await sb.from('propiedades').select('*').order('dir');
+        if (propData && propData.length > 0) {
+          setPropiedades(propData.map(fromRowProp));
+        } else {
+          await sb.from('propiedades').upsert(PROPS_DATA.map(toRowProp));
+          setPropiedades(PROPS_DATA);
+        }
+        // Propietarios
+        const { data: ownData } = await sb.from('propietarios').select('*').order('nombre');
+        if (ownData && ownData.length > 0) {
+          setPropietarios(ownData.map(fromRowOwner));
+        } else {
+          await sb.from('propietarios').upsert(OWNERS.map(toRowOwner));
+          setPropietarios(OWNERS);
+        }
+        // Reclamos
+        const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
+        if (recData) setReclamos(recData.map(fromRow));
+        setLoading(false);
+      };
+      init();
 
-    return () => sb.removeChannel(channel);
+      // Real-time: cualquier cambio en reclamos se refleja en todos los dispositivos
+      const channel = sb.channel('reclamos-sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reclamos' }, payload => {
+          if (payload.eventType === 'INSERT') {
+            setReclamos(p => [fromRow(payload.new), ...p.filter(r => r.id !== payload.new.id)]);
+          } else if (payload.eventType === 'UPDATE') {
+            setReclamos(p => p.map(r => r.id === payload.new.id ? fromRow(payload.new) : r));
+          } else if (payload.eventType === 'DELETE') {
+            setReclamos(p => p.filter(r => r.id !== payload.old.id));
+          }
+        })
+        .subscribe();
+
+      return () => sb.removeChannel(channel);
+    } else {
+      (async () => {
+        try {
+          const me = await apiFetch('/api/auth/me');
+          setUsuario(me.usuario);
+          await loadAdminData();
+        } catch (e) {
+          // 401 — no hay sesión activa, se muestra la pantalla de login
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }
   }, []);
 
   // Pre-cargar datos del inquilino cuando abre portal
@@ -627,13 +687,38 @@ function App() {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
+  // refresh(): sólo se usa en el header del admin (los portales no lo muestran) → vía API.
   const refresh = async () => {
     showToast("🔄 Actualizando…");
-    const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
-    if (recData) setReclamos(recData.map(fromRow));
-    const { data: provData } = await sb.from('proveedores').select('*');
-    if (provData && provData.length > 0) setProveedores(provData);
-    showToast("✅ Datos actualizados");
+    try {
+      await loadAdminData();
+      showToast("✅ Datos actualizados");
+    } catch (e) {
+      showToast("⚠️ No se pudo actualizar: " + e.message);
+    }
+  };
+
+  // ── Auth admin ──
+  const doLogin = async () => {
+    if (!loginForm.email || !loginForm.password) { setLoginErr("Completá email y contraseña"); return; }
+    setLoginBusy(true); setLoginErr("");
+    try {
+      const r = await apiFetch('/api/auth/login', { method:'POST', body:{ email:loginForm.email, password:loginForm.password } });
+      setUsuario(r.usuario);
+      setLoginForm({ email:"", password:"" });
+      setLoading(true);
+      await loadAdminData();
+      setLoading(false);
+    } catch (e) {
+      setLoginErr(e.message || "No se pudo iniciar sesión");
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+  const doLogout = async () => {
+    try { await apiFetch('/api/auth/logout', { method:'POST' }); } catch (e) {}
+    setUsuario(null);
+    setReclamos([]); setPropiedades([]); setPropietarios([]); setProveedores(PROVEEDORES_INIT);
   };
 
   // ── Links directos a portales ──
@@ -642,16 +727,19 @@ function App() {
   const copyLink = (url) => { navigator.clipboard.writeText(url).then(()=>showToast("🔗 Link copiado")); };
   const waLink = (url, nombre) => `https://wa.me/?text=${encodeURIComponent(`Houscare — Tu portal de acceso, ${nombre}:\n${url}`)}`;
 
-  // ── Calificación de proveedor ──
+  // ── Calificación de proveedor (sólo admin, vía API) ──
   const updateProvCal = async (provNombre, rating) => {
     const allRatings = reclamos
       .filter(r => r.proveedor === provNombre && r.ratingAdmin)
       .map(r => r.ratingAdmin);
     allRatings.push(rating);
     const avg = Math.round((allRatings.reduce((s,v)=>s+v,0)/allRatings.length)*10)/10;
-    setProveedores(ps => ps.map(p => p.nombre === provNombre ? {...p, cal:avg} : p));
     const prov = proveedores.find(p => p.nombre === provNombre);
-    if (prov) await sb.from('proveedores').update({cal:avg}).eq('id', prov.id);
+    if (!prov) return;
+    try {
+      const r = await apiFetch(`/api/proveedores/${prov.id}`, { method:'PUT', body:{ cal:avg } });
+      setProveedores(ps => ps.map(p => p.id === prov.id ? r.proveedor : p));
+    } catch(e) { showToast("⚠️ No se pudo guardar la calificación: " + e.message); }
   };
 
   // ── Stats ──
@@ -692,18 +780,22 @@ function App() {
 
   const addProv = async () => {
     if(!provForm.nombre||!provForm.rubro){alert("Nombre y especialidad son obligatorios");return;}
-    const newProv = {id:nextProvId(),...provForm,cal:5};
-    setProveedores(ps=>[...ps,newProv]);
-    await sb.from('proveedores').insert(newProv);
-    setProvForm(EPROVF); setShowProvForm(false); showToast("✅ Proveedor agregado");
+    try {
+      const r = await apiFetch('/api/proveedores', { method:'POST', body: provForm });
+      setProveedores(ps=>[...ps, r.proveedor]);
+      setProvForm(EPROVF); setShowProvForm(false); showToast("✅ Proveedor agregado");
+    } catch(e) { alert(e.message); }
   };
   const deleteProv = async (id) => {
     if(!confirm("¿Eliminar proveedor? Esta acción no se puede deshacer.")) return;
-    setProveedores(ps=>ps.filter(p=>p.id!==id));
-    await sb.from('proveedores').delete().eq('id',id);
-    showToast("🗑 Proveedor eliminado");
+    try {
+      await apiFetch(`/api/proveedores/${id}`, { method:'DELETE' });
+      setProveedores(ps=>ps.filter(p=>p.id!==id));
+      showToast("🗑 Proveedor eliminado");
+    } catch(e) { showToast("⚠️ " + e.message); }
   };
 
+  // sendMsg: SIGUE en Supabase — la usan los portales inquilino/proveedor (sin login).
   const sendMsg = async (recId, autor, texto) => {
     const rec = reclamos.find(r=>r.id===recId);
     if(!rec) return;
@@ -712,59 +804,73 @@ function App() {
     setReclamos(p=>p.map(r=>r.id===recId?{...r,mensajes:msgs}:r));
     await sb.from('reclamos').update({mensajes:msgs}).eq('id',recId);
   };
+  // sendMsgAdmin: versión para el chat del admin (modal de detalle) — vía API, con login.
+  const sendMsgAdmin = async (recId, autor, texto) => {
+    try {
+      const r = await apiFetch(`/api/reclamos/${recId}/mensajes`, { method:'POST', body:{ autor, texto } });
+      setReclamos(p => p.map(x => x.id === recId ? r.reclamo : x));
+    } catch(e) { showToast("⚠️ " + e.message); }
+  };
 
   // Propiedades CRUD
   const saveProp = async () => {
     if(!propForm.dir){alert("La dirección es obligatoria");return;}
-    if(editPropId) {
-      const updated = {...propiedades.find(p=>p.id===editPropId), ...propForm};
-      setPropiedades(ps=>ps.map(p=>p.id===editPropId?updated:p));
-      await sb.from('propiedades').update(toRowProp(updated)).eq('id',editPropId);
-      showToast("✅ Propiedad actualizada");
-    } else {
-      const newP = {id:nextPropId(),...propForm};
-      setPropiedades(ps=>[...ps,newP]);
-      await sb.from('propiedades').insert(toRowProp(newP));
-      showToast("✅ Propiedad agregada");
-    }
-    setShowPropForm(false); setPropForm(EPROPF); setEditPropId(null);
+    try {
+      if(editPropId) {
+        const r = await apiFetch(`/api/propiedades/${editPropId}`, { method:'PUT', body: propForm });
+        setPropiedades(ps=>ps.map(p=>p.id===editPropId?r.propiedad:p));
+        showToast("✅ Propiedad actualizada");
+      } else {
+        const r = await apiFetch('/api/propiedades', { method:'POST', body: propForm });
+        setPropiedades(ps=>[...ps, r.propiedad]);
+        showToast("✅ Propiedad agregada");
+      }
+      setShowPropForm(false); setPropForm(EPROPF); setEditPropId(null);
+    } catch(e) { alert(e.message); }
   };
   const deleteProp = async (id) => {
     if(!confirm("¿Eliminar propiedad? Los reclamos asociados quedarán sin propiedad.")) return;
-    setPropiedades(ps=>ps.filter(p=>p.id!==id));
-    await sb.from('propiedades').delete().eq('id',id);
-    showToast("🗑 Propiedad eliminada");
+    try {
+      await apiFetch(`/api/propiedades/${id}`, { method:'DELETE' });
+      setPropiedades(ps=>ps.filter(p=>p.id!==id));
+      showToast("🗑 Propiedad eliminada");
+    } catch(e) { showToast("⚠️ " + e.message); }
   };
   const desocuparProp = async (id) => {
     if(!confirm("¿Marcar como desocupada? Se eliminarán los datos del inquilino.")) return;
-    setPropiedades(ps=>ps.map(p=>p.id===id?{...p,inquilino:"",emailInq:"",telInq:""}:p));
-    await sb.from('propiedades').update({inquilino:"",email_inq:"",tel_inq:""}).eq('id',id);
-    showToast("🏠 Propiedad marcada como vacía");
+    try {
+      const r = await apiFetch(`/api/propiedades/${id}/desocupar`, { method:'POST' });
+      setPropiedades(ps=>ps.map(p=>p.id===id?r.propiedad:p));
+      showToast("🏠 Propiedad marcada como vacía");
+    } catch(e) { showToast("⚠️ " + e.message); }
   };
 
   // Propietarios CRUD
   const saveOwner = async () => {
     if(!ownerForm.nombre){alert("El nombre es obligatorio");return;}
-    if(editOwnerId) {
-      const updated = {...propietarios.find(o=>o.id===editOwnerId),...ownerForm};
-      setPropietarios(ps=>ps.map(o=>o.id===editOwnerId?updated:o));
-      await sb.from('propietarios').update(toRowOwner(updated)).eq('id',editOwnerId);
-      showToast("✅ Propietario actualizado");
-    } else {
-      const newO = {id:nextOwnId(),...ownerForm};
-      setPropietarios(ps=>[...ps,newO]);
-      await sb.from('propietarios').insert(toRowOwner(newO));
-      showToast("✅ Propietario agregado");
-    }
-    setShowOwnerForm(false); setOwnerForm(EOWNF); setEditOwnerId(null);
+    try {
+      if(editOwnerId) {
+        const r = await apiFetch(`/api/propietarios/${editOwnerId}`, { method:'PUT', body: ownerForm });
+        setPropietarios(ps=>ps.map(o=>o.id===editOwnerId?r.propietario:o));
+        showToast("✅ Propietario actualizado");
+      } else {
+        const r = await apiFetch('/api/propietarios', { method:'POST', body: ownerForm });
+        setPropietarios(ps=>[...ps, r.propietario]);
+        showToast("✅ Propietario agregado");
+      }
+      setShowOwnerForm(false); setOwnerForm(EOWNF); setEditOwnerId(null);
+    } catch(e) { alert(e.message); }
   };
   const deleteOwner = async (id) => {
     if(!confirm("¿Eliminar propietario?")) return;
-    setPropietarios(ps=>ps.filter(o=>o.id!==id));
-    await sb.from('propietarios').delete().eq('id',id);
-    showToast("🗑 Propietario eliminado");
+    try {
+      await apiFetch(`/api/propietarios/${id}`, { method:'DELETE' });
+      setPropietarios(ps=>ps.filter(o=>o.id!==id));
+      showToast("🗑 Propietario eliminado");
+    } catch(e) { showToast("⚠️ " + e.message); }
   };
   const pSum = f => Number(f.pctInq) + Number(f.pctProp) + Number(f.pctInmob);
+  // addFotosR: SIGUE en Supabase — la usa el portal proveedor (sin login).
   const addFotosR = (id, por, files) => {
     Array.from(files).forEach(file => readFile(file, url => {
       const newFoto = { dataUrl:url, nombre:file.name, subidaPor:por, fecha:today() };
@@ -778,44 +884,61 @@ function App() {
       });
     }));
   };
+  // addFotosAdmin: versión para el modal de detalle del admin — vía API, con login.
+  // Sigue guardando la foto como dataURL (base64) en el JSONB `fotos`, igual que
+  // hoy en Supabase — todavía no hay bucket S3 configurado en Railway para subir
+  // el archivo real (ver PROYECTO.md, backend/README.md), así que se pospone.
+  const addFotosAdmin = (id, por, files) => {
+    Array.from(files).forEach(file => readFile(file, url => {
+      const newFoto = { dataUrl:url, nombre:file.name, subidaPor:por, fecha:today() };
+      setReclamos(p => {
+        const updated = p.map(r => r.id === id
+          ? { ...r, ultimaAct:today(), fotos:[...(r.fotos||[]), newFoto] }
+          : r);
+        const updR = updated.find(r => r.id === id);
+        if (updR) apiFetch(`/api/reclamos/${id}`, { method:'PUT', body:{ fotos:updR.fotos } })
+          .catch(e => showToast("⚠️ No se pudo guardar la foto: " + e.message));
+        return updated;
+      });
+    }));
+  };
   const addFotosF = (setter, por, files) => {
     Array.from(files).forEach(file => readFile(file, url => {
       setter(f => ({ ...f, fotos:[...f.fotos, { dataUrl:url, nombre:file.name, subidaPor:por, fecha:today() }] }));
     }));
   };
 
-  // ── Handlers CRUD ──
+  // ── Handlers CRUD (admin — vía API) ──
   const submit = async () => {
     if (!form.propiedad || !form.inquilino || !form.descripcion) { alert("Completá los campos obligatorios (*)"); return; }
     if (form.quienPaga === "Por Porcentaje" && pSum(form) !== 100) { alert(`Los porcentajes deben sumar 100%. Ahora suman ${pSum(form)}%.`); return; }
-    const t = today();
     const base = { ...form, costoEst:Number(form.costoEst)||0, costoReal:Number(form.costoReal)||0, pctInq:Number(form.pctInq)||0, pctProp:Number(form.pctProp)||0, pctInmob:Number(form.pctInmob)||0 };
     let provNuevo = null;
-    if (editId) {
-      const orig = reclamos.find(r => r.id === editId);
-      const provCambio = base.proveedor && base.proveedor !== orig?.proveedor;
-      const updated = { ...orig, ...base, ultimaAct:t, provAceptado:provCambio?"pendiente":orig?.provAceptado, fechaAsignacion:provCambio?t:orig?.fechaAsignacion };
-      setReclamos(p => p.map(r => r.id === editId ? updated : r));
-      await sb.from('reclamos').update(toRow(updated)).eq('id', editId);
-      if (provCambio) provNuevo = base.proveedor;
-      setEditId(null); showToast("✅ Reclamo actualizado");
-    } else {
-      const newRec = { id:nextId(), fecha:t, ultimaAct:t, fotos:[], aprobacion:null, provAceptado:base.proveedor?"pendiente":null, mensajes:[], comentarioCierre:'', ratingInq:0, comentarioInq:'', fechaAsignacion:base.proveedor?t:null, fechaAceptacion:null, fechaAprobacion:null, cobrado:false, ...base };
-      setReclamos(p => [newRec, ...p]);
-      await sb.from('reclamos').insert(toRow(newRec));
-      if (base.proveedor) provNuevo = base.proveedor;
-      showToast("✅ Reclamo creado");
-    }
-    setForm(EF); setShowForm(false);
-    // WhatsApp automático al asignar proveedor
-    if (provNuevo) {
-      const prov = proveedores.find(p => p.nombre === provNuevo);
-      if (prov?.tel) {
-        const link = portalLink({portal:'prov', id:prov.id});
-        const waMsg = `Houscare — Hola ${prov.nombre}, tenés un trabajo asignado. Por favor revisá el detalle y confirmá si podés tomarlo:\n${link}`;
-        setTimeout(() => window.open(`https://wa.me/${prov.tel.replace(/\D/g,"")}?text=${encodeURIComponent(waMsg)}`, '_blank'), 400);
+    try {
+      if (editId) {
+        const orig = reclamos.find(r => r.id === editId);
+        const provCambio = base.proveedor && base.proveedor !== orig?.proveedor;
+        const r = await apiFetch(`/api/reclamos/${editId}`, { method:'PUT', body: base });
+        setReclamos(p => p.map(x => x.id === editId ? r.reclamo : x));
+        if (provCambio) provNuevo = base.proveedor;
+        setEditId(null); showToast("✅ Reclamo actualizado");
+      } else {
+        const r = await apiFetch('/api/reclamos', { method:'POST', body: base });
+        setReclamos(p => [r.reclamo, ...p]);
+        if (base.proveedor) provNuevo = base.proveedor;
+        showToast("✅ Reclamo creado");
       }
-    }
+      setForm(EF); setShowForm(false);
+      // WhatsApp automático al asignar proveedor
+      if (provNuevo) {
+        const prov = proveedores.find(p => p.nombre === provNuevo);
+        if (prov?.tel) {
+          const link = portalLink({portal:'prov', id:prov.id});
+          const waMsg = `Houscare — Hola ${prov.nombre}, tenés un trabajo asignado. Por favor revisá el detalle y confirmá si podés tomarlo:\n${link}`;
+          setTimeout(() => window.open(`https://wa.me/${prov.tel.replace(/\D/g,"")}?text=${encodeURIComponent(waMsg)}`, '_blank'), 400);
+        }
+      }
+    } catch(e) { alert(e.message); }
   };
   const cerrar = async (id, rating=null, comentario='') => {
     const rec = reclamos.find(r => r.id === id);
@@ -824,17 +947,20 @@ function App() {
       setRatingComent('');
       return;
     }
-    const updates = { estado:'Cerrado', ultima_act:today(), comentario_cierre: comentario||'' };
-    setReclamos(p => p.map(r => r.id === id ? { ...r, estado:"Cerrado", ultimaAct:today(), ratingAdmin:rating, comentarioCierre:comentario } : r));
-    await sb.from('reclamos').update(updates).eq('id', id);
-    if (rating && rec?.proveedor) await updateProvCal(rec.proveedor, rating);
-    setDetId(null); setRatingModal(null); setRatingComent(''); showToast("✅ Reclamo cerrado");
+    try {
+      const r = await apiFetch(`/api/reclamos/${id}`, { method:'PUT', body:{ estado:'Cerrado', comentarioCierre: comentario||'' } });
+      setReclamos(p => p.map(x => x.id === id ? r.reclamo : x));
+      if (rating && rec?.proveedor) await updateProvCal(rec.proveedor, rating);
+      setDetId(null); setRatingModal(null); setRatingComent(''); showToast("✅ Reclamo cerrado");
+    } catch(e) { alert(e.message); }
   };
+  // guardarRatingInq: SIGUE en Supabase — la usa el portal inquilino (sin login).
   const guardarRatingInq = async (id, rating, comentario) => {
     setReclamos(p => p.map(r => r.id === id ? {...r, ratingInq:rating, comentarioInq:comentario} : r));
     await sb.from('reclamos').update({rating_inq:rating, comentario_inq:comentario}).eq('id',id);
     showToast("⭐ Gracias por tu calificación");
   };
+  // aprobar: SIGUE en Supabase — la usa el portal propietario (sin login).
   const aprobar = async (id, dec) => {
     const extra = dec === "aprobada" ? { fechaAprobacion:today() } : {};
     setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec, ...extra } : r));
@@ -842,10 +968,13 @@ function App() {
     await sb.from('reclamos').update({ aprobacion:dec, ...dbExtra }).eq('id', id);
     showToast(dec === "aprobada" ? "✅ Aprobado" : "❌ Rechazado");
   };
+  // solAprob: admin, vía API.
   const solAprob = async id => {
-    setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:"pendiente" } : r)); // optimistic
-    await sb.from('reclamos').update({ aprobacion:'pendiente' }).eq('id', id);
-    setDetId(null); showToast("📩 Aprobación solicitada");
+    try {
+      const r = await apiFetch(`/api/reclamos/${id}/solicitar-aprobacion`, { method:'POST' });
+      setReclamos(p => p.map(x => x.id === id ? r.reclamo : x));
+      setDetId(null); showToast("📩 Aprobación solicitada");
+    } catch(e) { alert(e.message); }
   };
   const abrirEdit = r => {
     setDetId(null);
@@ -879,6 +1008,26 @@ function App() {
       <div style={{width:36,height:36,border:"4px solid #E2E8F0",borderTopColor:"#1D44AA",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
       <div style={{fontSize:13,color:"#64748B"}}>Cargando datos…</div>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  // ── Login admin (no aplica a portales — esos entran directo sin sesión) ──
+  if (!portal && !usuario) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#F0F4F8",padding:24}}>
+      <Logo size={52}/>
+      <div style={{fontSize:20,fontWeight:900,color:"#0F1E3C",margin:"12px 0 24px"}}>Houscare</div>
+      <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:340,boxShadow:"0 1px 6px rgba(0,0,0,.07)",boxSizing:"border-box"}}>
+        <div style={{marginBottom:14}}>
+          <label style={LBL}>Email</label>
+          <input type="email" autoComplete="username" value={loginForm.email} onChange={e=>setLoginForm(f=>({...f,email:e.target.value}))} style={INP}/>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={LBL}>Contraseña</label>
+          <input type="password" autoComplete="current-password" value={loginForm.password} onChange={e=>setLoginForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&doLogin()} style={INP}/>
+        </div>
+        {loginErr && <div style={{color:"#991B1B",fontSize:12,marginBottom:12,fontWeight:600}}>{loginErr}</div>}
+        <button onClick={doLogin} disabled={loginBusy} style={{...BB,opacity:loginBusy?.7:1}}>{loginBusy?"Ingresando…":"Ingresar"}</button>
+      </div>
     </div>
   );
 
@@ -1124,6 +1273,7 @@ function App() {
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{ if(confirm("¿Cerrar sesión?")) doLogout(); }} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:14,cursor:"pointer"}} title={`Salir (${usuario?.nombre||""})`}>🚪</button>
             <button onClick={refresh} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:16,cursor:"pointer"}} title="Actualizar datos">🔄</button>
             <button onClick={()=>{
               if(tab==="proveedores"){setProvForm(EPROVF);setShowProvForm(true);}
@@ -1609,14 +1759,14 @@ function App() {
                 <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8}}>📷 Fotos ({det.fotos?.length||0})</div>
                 {det.estado !== "Cerrado" && (
                   <>
-                    <input type="file" id={`det-file-${det.id}`} accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotosR(det.id,"Admin",e.target.files);e.target.value="";showToast("📷 Foto agregada");}}/>
+                    <input type="file" id={`det-file-${det.id}`} accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotosAdmin(det.id,"Admin",e.target.files);e.target.value="";showToast("📷 Foto agregada");}}/>
                     <label htmlFor={`det-file-${det.id}`} style={{background:"#EFF6FF",color:"#1D44AA",borderRadius:8,padding:"5px 12px",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Agregar</label>
                   </>
                 )}
               </div>
               {det.fotos?.length > 0 ? <Galeria fotos={det.fotos}/> : <div style={{textAlign:"center",padding:"14px 0",color:"#94A3B8",fontSize:13}}>Sin fotos adjuntas</div>}
             </div>
-            <ChatPanel reclamo={det} autor="Admin" onSend={sendMsg}/>
+            <ChatPanel reclamo={det} autor="Admin" onSend={sendMsgAdmin}/>
             {det.estado !== "Cerrado" && det.costoEst > 0 && det.aprobacion === null && (
               <button onClick={()=>solAprob(det.id)} style={{...BG,marginBottom:10,color:"#1D44AA"}}>📩 Solicitar aprobación del propietario</button>
             )}
