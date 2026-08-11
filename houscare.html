@@ -6,7 +6,6 @@
 <title>Houscare — Daniel Vega Inversiones Inmobiliarias</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,6 +43,13 @@ const EC = {
   "Presupuestado":       { bg:"#F3E8FF", t:"#6B21A8",  d:"#9333EA" },
   "Cerrado":             { bg:"#F1F5F9", t:"#475569",  d:"#94A3B8" },
 };
+
+// ─── Estilos compartidos por los portales externos (sin sesión) ──────────────
+const INP_PORTAL = { width:"100%", padding:"10px 12px", borderRadius:10, border:"1.5px solid #E2E8F0", fontSize:13, outline:"none", boxSizing:"border-box", background:"#F8FAFC", color:"#0F1E3C", fontFamily:"inherit" };
+const LBL_PORTAL = { fontSize:11, fontWeight:700, color:"#64748B", marginBottom:4, display:"block", letterSpacing:.8, textTransform:"uppercase" };
+const BB_PORTAL  = { background:"#1D44AA", color:"#fff", border:"none", borderRadius:12, padding:"13px 0", fontWeight:700, fontSize:15, cursor:"pointer", width:"100%" };
+const BG_PORTAL  = { background:"#F1F5F9", color:"#475569", border:"none", borderRadius:12, padding:"12px 0", fontWeight:600, fontSize:14, cursor:"pointer", width:"100%" };
+const CARD_PORTAL= { background:"#fff", borderRadius:14, padding:"14px 16px", boxShadow:"0 1px 6px rgba(0,0,0,.07)", marginBottom:10 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const daysDiff = d => d ? Math.floor((Date.now() - new Date(d)) / 86400000) : 0;
@@ -214,16 +220,11 @@ const RECLAMOS_INIT = [];
 
 const LS_KEY  = "houscare_reclamos_v2"; // ya no se usa, solo por compatibilidad
 
-// ─── Supabase ──────────────────────────────────────────────────────────────────
-const SUPABASE_URL = 'https://pgtnqlsdwggxbpctedcz.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBndG5xbHNkd2dneGJwY3RlZGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTkwNjgsImV4cCI6MjA5NDc5NTA2OH0.R0wFb5nwAjRss_aAf8hItRcxs6DJp9RSMX86ySKkgZI';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// ─── API REST (backend Flask, Camino B — reemplazo gradual de Supabase) ───────
-// Fase 2 (09/08/2026): arranca el reemplazo real de sb.from(...) por esta API,
-// empezando por el CRUD del admin. Los 3 portales externos (inquilino/proveedor/
-// propietario) siguen 100% en Supabase por ahora — quedan para la próxima sesión,
-// cuando se adapten a portal_token en vez de dir/id en la URL (ver PROYECTO.md).
+// ─── API REST (backend Flask, Camino B) ───────────────────────────────────────
+// Migración a la API completada 09/08/2026 (sesión 5): las 33 llamadas
+// sb.from(...) originales ya están todas portadas — 16 en la sesión 4 (CRUD
+// del admin) y las 17 restantes en esta sesión (los 3 portales externos, vía
+// portal_token). Supabase queda completamente fuera de houscare.html.
 const API_BASE = 'https://web-production-2c8f2.up.railway.app';
 async function apiFetch(path, opts = {}) {
   const res = await fetch(API_BASE + path, {
@@ -238,49 +239,7 @@ async function apiFetch(path, opts = {}) {
   return data;
 }
 
-// camelCase → snake_case (para guardar en Supabase)
-const toRow = r => ({
-  id: r.id, fecha: r.fecha, ultima_act: r.ultimaAct,
-  propiedad: r.propiedad, inquilino: r.inquilino,
-  email: r.email||'', tel_inq: r.telInq||'',
-  sector: r.sector, prioridad: r.prioridad, estado: r.estado,
-  proveedor: r.proveedor||'',
-  costo_est: r.costoEst||0, costo_real: r.costoReal||0,
-  quien_paga: r.quienPaga,
-  pct_inq: r.pctInq||0, pct_prop: r.pctProp||0, pct_inmob: r.pctInmob||0,
-  descripcion: r.descripcion, notas: r.notas||'',
-  fotos: r.fotos||[], aprobacion: r.aprobacion||null,
-  prov_aceptado: r.provAceptado||null, mensajes: r.mensajes||[],
-  comentario_cierre: r.comentarioCierre||'', rating_inq: r.ratingInq||0, comentario_inq: r.comentarioInq||'',
-  fecha_asignacion: r.fechaAsignacion||null, fecha_aceptacion: r.fechaAceptacion||null,
-  fecha_aprobacion: r.fechaAprobacion||null, cobrado: r.cobrado||false
-});
-// snake_case → camelCase (al leer de Supabase)
-const fromRow = row => ({
-  id: row.id, fecha: row.fecha, ultimaAct: row.ultima_act,
-  propiedad: row.propiedad, inquilino: row.inquilino,
-  email: row.email||'', telInq: row.tel_inq||'',
-  sector: row.sector, prioridad: row.prioridad, estado: row.estado,
-  proveedor: row.proveedor||'',
-  costoEst: Number(row.costo_est)||0, costoReal: Number(row.costo_real)||0,
-  quienPaga: row.quien_paga,
-  pctInq: Number(row.pct_inq)||0, pctProp: Number(row.pct_prop)||0, pctInmob: Number(row.pct_inmob)||0,
-  descripcion: row.descripcion, notas: row.notas||'',
-  fotos: row.fotos||[], aprobacion: row.aprobacion||null,
-  provAceptado: row.prov_aceptado||null, mensajes: row.mensajes||[],
-  comentarioCierre: row.comentario_cierre||'', ratingInq: Number(row.rating_inq)||0, comentarioInq: row.comentario_inq||'',
-  fechaAsignacion: row.fecha_asignacion||null, fechaAceptacion: row.fecha_aceptacion||null,
-  fechaAprobacion: row.fecha_aprobacion||null, cobrado: row.cobrado||false
-});
-// Propiedades
-const toRowProp = p => ({ id:p.id, dir:p.dir, tipo:p.tipo||'Casa', owner_id:p.ownerId||'', inquilino:p.inquilino||'', email_inq:p.emailInq||'', tel_inq:p.telInq||'' });
-const fromRowProp = row => ({ id:row.id, dir:row.dir, tipo:row.tipo||'Casa', ownerId:row.owner_id||'', inquilino:row.inquilino||'', emailInq:row.email_inq||'', telInq:row.tel_inq||'' });
-// Propietarios
-const toRowOwner = o => ({ id:o.id, nombre:o.nombre, email:o.email||'', tel:o.tel||'' });
-const fromRowOwner = row => ({ id:row.id, nombre:row.nombre, email:row.email||'', tel:row.tel||'' });
-
 const EF      = { propiedad:"", inquilino:"", email:"", telInq:"", sector:"Plomería", prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:"", costoReal:"", quienPaga:"Sin definir", pctInq:34, pctProp:33, pctInmob:33, descripcion:"", notas:"", fotos:[] };
-const EIF     = { nombre:"", email:"", tel:"", sector:"Plomería", descripcion:"", fotos:[] };
 const EPROVF  = { nombre:"", rubro:"", tel:"", email:"", zona:"", notas:"", estado:"Activo" };
 const EPROPF  = { id:"", dir:"", tipo:"Casa", ownerId:"", inquilino:"", emailInq:"", telInq:"" };
 const EOWNF   = { id:"", nombre:"", email:"", tel:"" };
@@ -442,7 +401,7 @@ function ChatPanel({ reclamo, autor, onSend }) {
 }
 
 // ─── Tarjeta de trabajo — Portal Proveedor ───────────────────────────────────
-function ProvJobCard({ r, onAccept, onReject, onTerminado, onCobrado, onMsg, onFotos, showFn }) {
+function ProvJobCard({ r, onAccept, onReject, onTerminado, onCobrado, onMsg, onFotos, onPresupuesto, showFn }) {
   const [presup, setPresup] = React.useState(r.costoEst > 0 ? String(r.costoEst) : "");
   const CARD2 = { background:"#fff", borderRadius:14, padding:"14px 16px", boxShadow:"0 1px 6px rgba(0,0,0,.07)", marginBottom:10 };
   const INP2  = { flex:1, padding:"8px 10px", borderRadius:8, border:"1.5px solid #E2E8F0", fontSize:13, outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
@@ -450,7 +409,7 @@ function ProvJobCard({ r, onAccept, onReject, onTerminado, onCobrado, onMsg, onF
   const savePresup = async () => {
     if (!presup) return;
     const val = Number(presup);
-    await sb.from('reclamos').update({ costo_est:val }).eq('id', r.id);
+    await onPresupuesto(r.id, val);
     showFn("💰 Presupuesto guardado");
   };
   return (
@@ -541,6 +500,284 @@ function ProvJobCard({ r, onAccept, onReject, onTerminado, onCobrado, onMsg, onF
   );
 }
 
+// ─── Toast local para portales sin sesión (inquilino/proveedor/propietario) ──
+function usePortalToast() {
+  const [toast, setToast] = React.useState(null);
+  const show = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+  const Toast = toast ? (
+    <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0F1E3C",color:"#fff",padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,.25)"}}>{toast}</div>
+  ) : null;
+  return [show, Toast];
+}
+const PH_PORTAL = { background:"#0F1E3C", padding:"14px 16px" };
+function PortalHeader({ titulo, sub, fromAdmin, onBack, right }) {
+  return (
+    <div style={PH_PORTAL}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <Logo/>
+          <div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>{titulo}</div>{sub&&<div style={{color:"#94A3B8",fontSize:11}}>{sub}</div>}</div>
+        </div>
+        {fromAdmin
+          ? <button onClick={onBack} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>
+          : right || null}
+      </div>
+    </div>
+  );
+}
+function PortalLoading() {
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#F0F4F8",gap:16}}>
+      <Logo size={52}/>
+      <div style={{width:36,height:36,border:"4px solid #E2E8F0",borderTopColor:"#1D44AA",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+function PortalError({ msg }) {
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#F0F4F8",gap:12,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:48}}>🔒</div>
+      <div style={{fontSize:15,fontWeight:700,color:"#0F1E3C"}}>{msg||"Link no válido"}</div>
+      <div style={{fontSize:13,color:"#64748B"}}>Pedile a la inmobiliaria que te reenvíe el link.</div>
+    </div>
+  );
+}
+
+// ─── Portal Inquilino — reportar un problema nuevo (sin token, por id de propiedad) ──
+function PortalInqNuevo({ pid, fromAdmin, onBack }) {
+  const [showToast, Toast] = usePortalToast();
+  const [f, setF] = React.useState({ nombre:"", tel:"", email:"", sector:"Plomería", descripcion:"", fotos:[] });
+  const [ok, setOk] = React.useState(null); // reclamo creado
+  const [busy, setBusy] = React.useState(false);
+
+  const addFotos = files => {
+    Array.from(files).forEach(file => readFile(file, url => {
+      setF(fr => ({ ...fr, fotos:[...fr.fotos, { dataUrl:url, nombre:file.name, subidaPor:"Inquilino", fecha:today() }] }));
+    }));
+  };
+
+  const enviar = async () => {
+    if (!f.nombre || !f.descripcion) { alert("Completá nombre y descripción"); return; }
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/portal/inquilino/nueva/${pid}`, { method:'POST', body:{ inquilino:f.nombre, telInq:f.tel, email:f.email, sector:f.sector, descripcion:f.descripcion, fotos:f.fotos } });
+      setOk(r.reclamo);
+    } catch(e) { alert(e.message); } finally { setBusy(false); }
+  };
+
+  if (ok) return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      {Toast}
+      <PortalHeader titulo="Portal Inquilino" sub={ok.propiedad} fromAdmin={fromAdmin} onBack={onBack}/>
+      <div style={{padding:32,textAlign:"center"}}>
+        <div style={{fontSize:64,marginBottom:16}}>✅</div>
+        <h2 style={{margin:"0 0 8px",color:"#065F46",fontWeight:900,fontSize:22}}>¡Reclamo enviado!</h2>
+        <p style={{color:"#475569",fontSize:14,marginBottom:20}}>Tu reclamo fue registrado. La inmobiliaria se va a contactar pronto.</p>
+        <div style={{background:"#D1FAE5",borderRadius:14,padding:20,marginBottom:24}}>
+          <div style={{fontSize:12,color:"#065F46",fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Número de reclamo</div>
+          <div style={{fontSize:36,fontWeight:900,color:"#065F46"}}>{ok.id}</div>
+        </div>
+        <p style={{fontSize:13,color:"#94A3B8",marginBottom:24}}>Guardá este link para hacer seguimiento y chatear con el proveedor.</p>
+        <button onClick={() => { window.location.href = `${window.location.pathname}?portal=inq&t=${ok.portalToken}`; }} style={BB_PORTAL}>Ver estado de mi reclamo</button>
+        <button onClick={() => setOk(null)} style={{...BG_PORTAL,marginTop:10}}>Reportar otro problema</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      {Toast}
+      <PortalHeader titulo="Portal Inquilino" fromAdmin={fromAdmin} onBack={onBack}/>
+      <div style={{padding:"16px 16px 60px"}}>
+        <div style={{background:"#EFF6FF",borderRadius:12,padding:"12px 14px",marginBottom:14,fontSize:13,color:"#1D44AA",fontWeight:600}}>Reportá un problema en tu propiedad. Te avisamos cuando esté resuelto.</div>
+        <div style={CARD_PORTAL}>
+          <div style={{marginBottom:14}}><label style={LBL_PORTAL}>Tu nombre *</label><input placeholder="Apellido, Nombre" value={f.nombre} onChange={e=>setF(fr=>({...fr,nombre:e.target.value}))} style={INP_PORTAL}/></div>
+          <div style={{marginBottom:14}}><label style={LBL_PORTAL}>Teléfono</label><input type="tel" placeholder="341-000-0000" value={f.tel} onChange={e=>setF(fr=>({...fr,tel:e.target.value}))} style={INP_PORTAL}/></div>
+          <div style={{marginBottom:14}}><label style={LBL_PORTAL}>Email</label><input type="email" placeholder="tu@email.com" value={f.email} onChange={e=>setF(fr=>({...fr,email:e.target.value}))} style={INP_PORTAL}/></div>
+          <div style={{marginBottom:14}}><label style={LBL_PORTAL}>Tipo de problema</label><select value={f.sector} onChange={e=>setF(fr=>({...fr,sector:e.target.value}))} style={INP_PORTAL}>{SECTORES.map(o=><option key={o}>{o}</option>)}</select></div>
+          <div style={{marginBottom:14}}><label style={LBL_PORTAL}>Descripción *</label><textarea placeholder="Describí el problema con el mayor detalle posible..." value={f.descripcion} onChange={e=>setF(fr=>({...fr,descripcion:e.target.value}))} style={{...INP_PORTAL,height:100,resize:"none"}}/></div>
+          <div style={{marginBottom:20}}>
+            <label style={LBL_PORTAL}>📷 Fotos del problema</label>
+            <input type="file" id="inq-file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotos(e.target.files);e.target.value="";}}/>
+            <label htmlFor="inq-file" style={{display:"block",background:"#F8FAFC",border:"1.5px dashed #CBD5E1",borderRadius:10,padding:"14px",cursor:"pointer",color:"#64748B",fontWeight:600,fontSize:13,textAlign:"center",boxSizing:"border-box"}}>📷 Agregar fotos</label>
+            {f.fotos.length > 0 && (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:8}}>
+                {f.fotos.map((ft,i) => (
+                  <div key={i} style={{position:"relative"}}>
+                    <img src={ft.dataUrl} alt="" style={{width:"100%",height:80,objectFit:"cover",borderRadius:8,border:"1.5px solid #E2E8F0"}}/>
+                    <button onClick={()=>setF(fr=>({...fr,fotos:fr.fotos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:3,right:3,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:12}}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button onClick={enviar} disabled={busy} style={{...BB_PORTAL,opacity:busy?.7:1}}>{busy?"Enviando…":"Enviar reclamo"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Portal Inquilino — ver/seguir UN reclamo por portalToken ────────────────
+function PortalInqToken({ token, fromAdmin, onBack }) {
+  const [showToast, Toast] = usePortalToast();
+  const [r, setR] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+
+  React.useEffect(() => {
+    apiFetch(`/api/portal/inquilino/${token}`).then(res=>setR(res.reclamo)).catch(e=>setErr(e.message));
+  }, [token]);
+
+  const onMsg = async (_id, _autor, texto) => {
+    try {
+      const res = await apiFetch(`/api/portal/inquilino/${token}/mensajes`, { method:'POST', body:{ texto } });
+      setR(res.reclamo);
+    } catch(e) { showToast("⚠️ " + e.message); }
+  };
+  const onRating = async (_id, rating, comentario) => {
+    try {
+      const res = await apiFetch(`/api/portal/inquilino/${token}/rating`, { method:'POST', body:{ rating, comentario } });
+      setR(res.reclamo);
+      showToast("⭐ Gracias por tu calificación");
+    } catch(e) { showToast("⚠️ " + e.message); }
+  };
+
+  if (err) return <PortalError msg={err}/>;
+  if (!r) return <PortalLoading/>;
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      {Toast}
+      <PortalHeader titulo="Portal Inquilino" sub={r.propiedad} fromAdmin={fromAdmin} onBack={onBack}/>
+      <div style={{padding:"12px 16px 60px"}}>
+        <InqReclamoCard r={r} onRating={onRating} onMsg={onMsg}/>
+      </div>
+    </div>
+  );
+}
+
+// ─── Portal Proveedor — ver/gestionar UN trabajo por portalToken ─────────────
+function PortalProvToken({ token, fromAdmin, onBack }) {
+  const [showToast, Toast] = usePortalToast();
+  const [r, setR] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+
+  React.useEffect(() => {
+    apiFetch(`/api/portal/proveedor/${token}`).then(res=>setR(res.reclamo)).catch(e=>setErr(e.message));
+  }, [token]);
+
+  const accion = async (path, body, msgOk) => {
+    try {
+      const res = await apiFetch(`/api/portal/proveedor/${token}${path}`, { method:'POST', body });
+      setR(res.reclamo);
+      if (msgOk) showToast(msgOk);
+    } catch(e) { showToast("⚠️ " + e.message); }
+  };
+  const onMsg = (_id, _autor, texto) => accion('/mensajes', { texto });
+  const onPresupuesto = (_id, val) => accion('/presupuesto', { costoEst: val });
+  const onFotos = async (_id, _por, files) => {
+    for (const file of Array.from(files)) {
+      try {
+        const fd = new FormData(); fd.append('foto', file);
+        const res = await fetch(`${API_BASE}/api/portal/proveedor/${token}/fotos`, { method:'POST', body:fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+        setR(data.reclamo);
+        showToast("📷 Foto subida");
+      } catch(e) { showToast("⚠️ " + e.message); }
+    }
+  };
+
+  if (err) return <PortalError msg={err}/>;
+  if (!r) return <PortalLoading/>;
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      {Toast}
+      <PortalHeader titulo="Portal Proveedor" sub={r.proveedor} fromAdmin={fromAdmin} onBack={onBack}
+        right={<button onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>📋 Detalle</button>}/>
+      <div style={{padding:"12px 16px 60px"}}>
+        <ProvJobCard r={r}
+          onAccept={()=>accion('/aceptar', {}, "✅ Trabajo aceptado")}
+          onReject={()=>accion('/rechazar', {}, "❌ Trabajo rechazado")}
+          onTerminado={()=>accion('/terminado', {}, "✅ Marcado como terminado")}
+          onCobrado={()=>accion('/cobrado', {}, "💰 ¡Cobro registrado!")}
+          onMsg={onMsg}
+          onFotos={onFotos}
+          onPresupuesto={onPresupuesto}
+          showFn={showToast}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Portal Propietario — ver/aprobar UN reclamo por portalToken ─────────────
+function PortalOwnToken({ token, fromAdmin, onBack }) {
+  const [showToast, Toast] = usePortalToast();
+  const [r, setR] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+
+  React.useEffect(() => {
+    apiFetch(`/api/portal/propietario/${token}`).then(res=>setR(res.reclamo)).catch(e=>setErr(e.message));
+  }, [token]);
+
+  const aprobar = async decision => {
+    try {
+      const res = await apiFetch(`/api/portal/propietario/${token}/aprobar`, { method:'POST', body:{ decision } });
+      setR(res.reclamo);
+      showToast(decision === "aprobada" ? "✅ Aprobado" : "❌ Rechazado");
+    } catch(e) { showToast("⚠️ " + e.message); }
+  };
+
+  if (err) return <PortalError msg={err}/>;
+  if (!r) return <PortalLoading/>;
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      {Toast}
+      <PortalHeader titulo="Portal Propietario" sub={r.propiedad} fromAdmin={fromAdmin} onBack={onBack}/>
+      <div style={{padding:"12px 16px 60px"}}>
+        <div style={{...CARD_PORTAL,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span><Badge label={r.estado} sm/></div>
+          <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+          <div style={{fontSize:12,color:"#64748B",marginBottom:4}}>{r.sector} · {r.inquilino}</div>
+          <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
+          {r.costoEst > 0 && (
+            <div style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Detalle del costo</div>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:13,color:"#475569"}}>Costo estimado</span><span style={{fontSize:13,fontWeight:700}}>{fmt$(r.costoEst)}</span></div>
+              {r.costoReal > 0 && <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:13,color:"#475569"}}>Costo real</span><span style={{fontSize:13,fontWeight:700}}>{fmt$(r.costoReal)}</span></div>}
+              <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:13,color:"#475569"}}>¿Quién paga?</span><span style={{fontSize:13,fontWeight:700}}>{r.quienPaga}</span></div>
+              {r.quienPaga === "Por Porcentaje" && (
+                <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
+                  {[["Propietario (vos)",r.pctProp],["Inquilino",r.pctInq],["Inmobiliaria",r.pctInmob]].map(([l,pct]) => (
+                    <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:12,color:"#475569"}}>{l}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:l.includes("vos")?"#991B1B":"#0F1E3C"}}>{pct}% → {fmt$(r.costoEst*pct/100)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {r.quienPaga === "Propietario" && <div style={{marginTop:6,fontSize:12,color:"#991B1B",fontWeight:600}}>⚠️ Este costo corre por tu cuenta</div>}
+            </div>
+          )}
+          {r.fotos && r.fotos.length > 0 && <div style={{marginBottom:10}}><Galeria fotos={r.fotos}/></div>}
+          {r.aprobacion === "pendiente" && r.costoEst > 0 && (
+            <div>
+              <div style={{background:"#FEF3C7",borderRadius:10,padding:"10px 12px",marginBottom:8,fontSize:13,color:"#92400E",fontWeight:600}}>⏳ Se requiere tu aprobación para continuar con la reparación</div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>aprobar("aprobada")} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✅ Aprobar</button>
+                <button onClick={()=>aprobar("rechazada")} style={{flex:1,background:"#EF4444",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer"}}>❌ Rechazar</button>
+              </div>
+            </div>
+          )}
+          {r.aprobacion === "aprobada"  && <div style={{background:"#D1FAE5",borderRadius:10,padding:"8px 12px",textAlign:"center",fontSize:13,color:"#065F46",fontWeight:700}}>✅ Aprobado — reparación autorizada</div>}
+          {r.aprobacion === "rechazada" && <div style={{background:"#FEE2E2",borderRadius:10,padding:"8px 12px",textAlign:"center",fontSize:13,color:"#991B1B",fontWeight:700}}>❌ Rechazado — se notificó a la inmobiliaria</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App principal ────────────────────────────────────────────────────────────
 function App() {
   // ── Estado ──
@@ -557,14 +794,21 @@ function App() {
   const [fPrio,      setFPrio]      = useState("Todos");
   const [showFil,    setShowFil]    = useState(false);
   const [portal,     setPortal]     = useState(() => {
+    // Esquema por portal_token (09/08/2026, sesión 5): cada link de
+    // inquilino/proveedor/propietario apunta a UN reclamo puntual, vía el
+    // parámetro `t`. El único caso sin token es "reportar un problema
+    // nuevo" del inquilino, identificado por `pid` (id de propiedad) —
+    // ver POST /api/portal/inquilino/nueva/<pid> en el backend.
     const p = new URLSearchParams(window.location.search);
     const type = p.get('portal');
-    if (type==='inq')  return { type:'inq',  dir: decodeURIComponent(p.get('dir')||'') };
-    if (type==='prov') return { type:'prov', id: p.get('id') };
-    if (type==='own')  return { type:'own',  id: p.get('id') };
+    const token = p.get('t');
+    const pid = p.get('pid');
+    if (type==='inq'  && token) return { type:'inq',  token };
+    if (type==='inq'  && pid)   return { type:'inq-nuevo', pid };
+    if (type==='prov' && token) return { type:'prov', token };
+    if (type==='own'  && token) return { type:'own',  token };
     return null;
   });
-  const [inqF,       setInqF]       = useState(EIF);
   const [showProvForm,setShowProvForm] = useState(false);
   const [provForm,    setProvForm]    = useState(EPROVF);
   const [propiedades, setPropiedades] = useState([]);
@@ -579,8 +823,6 @@ function App() {
   const [propBusq,    setPropBusq]    = useState("");
   const [ratingComent,setRatingComent]= useState("");
   const [provTab,     setProvTab]     = useState("todos");
-  const [inqTab,      setInqTab]      = useState("nuevo");
-  const [inqOk,      setInqOk]      = useState(null);
   const [toast,      setToast]      = useState(null);
   const [portalTab,  setPortalTab]  = useState("inq");
   const [portalBusq, setPortalBusq] = useState("");
@@ -611,57 +853,14 @@ function App() {
 
   // ── Carga inicial ──
   // Portales externos (inquilino/proveedor/propietario, vía URL ?portal=...):
-  // siguen 100% en Supabase, sin tocar (incluye suscripción real-time) —
-  // quedan para la próxima sesión (ver PROYECTO.md, "portales al final").
-  // Admin (sin portal en la URL): va por la API REST nueva, atrás de login.
+  // desde la sesión 5 (portal_token) cada uno se auto-carga con su propio
+  // GET /api/portal/<tipo>/<token> — no dependen del estado global del admin,
+  // así que acá no hay nada que hacer para ellos (ver componentes
+  // PortalInqToken / PortalInqNuevo / PortalProvToken / PortalOwnToken).
+  // Admin (sin portal en la URL): va por la API REST, atrás de login.
   useEffect(() => {
     if (portal) {
-      const init = async () => {
-        // Proveedores: si la tabla está vacía, sembramos los iniciales
-        const { data: provData } = await sb.from('proveedores').select('*');
-        if (provData && provData.length > 0) {
-          setProveedores(provData);
-        } else {
-          await sb.from('proveedores').upsert(PROVEEDORES_INIT);
-          setProveedores(PROVEEDORES_INIT);
-        }
-        // Propiedades
-        const { data: propData } = await sb.from('propiedades').select('*').order('dir');
-        if (propData && propData.length > 0) {
-          setPropiedades(propData.map(fromRowProp));
-        } else {
-          await sb.from('propiedades').upsert(PROPS_DATA.map(toRowProp));
-          setPropiedades(PROPS_DATA);
-        }
-        // Propietarios
-        const { data: ownData } = await sb.from('propietarios').select('*').order('nombre');
-        if (ownData && ownData.length > 0) {
-          setPropietarios(ownData.map(fromRowOwner));
-        } else {
-          await sb.from('propietarios').upsert(OWNERS.map(toRowOwner));
-          setPropietarios(OWNERS);
-        }
-        // Reclamos
-        const { data: recData } = await sb.from('reclamos').select('*').order('created_at', { ascending: false });
-        if (recData) setReclamos(recData.map(fromRow));
-        setLoading(false);
-      };
-      init();
-
-      // Real-time: cualquier cambio en reclamos se refleja en todos los dispositivos
-      const channel = sb.channel('reclamos-sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'reclamos' }, payload => {
-          if (payload.eventType === 'INSERT') {
-            setReclamos(p => [fromRow(payload.new), ...p.filter(r => r.id !== payload.new.id)]);
-          } else if (payload.eventType === 'UPDATE') {
-            setReclamos(p => p.map(r => r.id === payload.new.id ? fromRow(payload.new) : r));
-          } else if (payload.eventType === 'DELETE') {
-            setReclamos(p => p.filter(r => r.id !== payload.old.id));
-          }
-        })
-        .subscribe();
-
-      return () => sb.removeChannel(channel);
+      setLoading(false);
     } else {
       (async () => {
         try {
@@ -676,14 +875,6 @@ function App() {
       })();
     }
   }, []);
-
-  // Pre-cargar datos del inquilino cuando abre portal
-  useEffect(() => {
-    if (portal?.type === 'inq') {
-      const prop = propiedades.find(p => p.dir === portal.dir) || PROPS_DATA.find(p => p.dir === portal.dir);
-      if (prop?.inquilino) setInqF(f => ({...f, nombre:prop.inquilino, email:prop.emailInq||'', tel:prop.telInq||''}));
-    }
-  }, [portal, propiedades]);
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -795,15 +986,6 @@ function App() {
     } catch(e) { showToast("⚠️ " + e.message); }
   };
 
-  // sendMsg: SIGUE en Supabase — la usan los portales inquilino/proveedor (sin login).
-  const sendMsg = async (recId, autor, texto) => {
-    const rec = reclamos.find(r=>r.id===recId);
-    if(!rec) return;
-    const newMsg = {autor, texto, fecha:now()};
-    const msgs = [...(rec.mensajes||[]), newMsg];
-    setReclamos(p=>p.map(r=>r.id===recId?{...r,mensajes:msgs}:r));
-    await sb.from('reclamos').update({mensajes:msgs}).eq('id',recId);
-  };
   // sendMsgAdmin: versión para el chat del admin (modal de detalle) — vía API, con login.
   const sendMsgAdmin = async (recId, autor, texto) => {
     try {
@@ -870,20 +1052,6 @@ function App() {
     } catch(e) { showToast("⚠️ " + e.message); }
   };
   const pSum = f => Number(f.pctInq) + Number(f.pctProp) + Number(f.pctInmob);
-  // addFotosR: SIGUE en Supabase — la usa el portal proveedor (sin login).
-  const addFotosR = (id, por, files) => {
-    Array.from(files).forEach(file => readFile(file, url => {
-      const newFoto = { dataUrl:url, nombre:file.name, subidaPor:por, fecha:today() };
-      setReclamos(p => {
-        const updated = p.map(r => r.id === id
-          ? { ...r, ultimaAct:today(), fotos:[...(r.fotos||[]), newFoto] }
-          : r);
-        const updR = updated.find(r => r.id === id);
-        if (updR) sb.from('reclamos').update({ fotos:updR.fotos, ultima_act:today() }).eq('id', id);
-        return updated;
-      });
-    }));
-  };
   // addFotosAdmin: versión para el modal de detalle del admin — vía API, con login.
   // Sigue guardando la foto como dataURL (base64) en el JSONB `fotos`, igual que
   // hoy en Supabase — todavía no hay bucket S3 configurado en Railway para subir
@@ -913,27 +1081,28 @@ function App() {
     if (!form.propiedad || !form.inquilino || !form.descripcion) { alert("Completá los campos obligatorios (*)"); return; }
     if (form.quienPaga === "Por Porcentaje" && pSum(form) !== 100) { alert(`Los porcentajes deben sumar 100%. Ahora suman ${pSum(form)}%.`); return; }
     const base = { ...form, costoEst:Number(form.costoEst)||0, costoReal:Number(form.costoReal)||0, pctInq:Number(form.pctInq)||0, pctProp:Number(form.pctProp)||0, pctInmob:Number(form.pctInmob)||0 };
-    let provNuevo = null;
+    let provNuevo = null, tokenNuevo = null;
     try {
       if (editId) {
         const orig = reclamos.find(r => r.id === editId);
         const provCambio = base.proveedor && base.proveedor !== orig?.proveedor;
         const r = await apiFetch(`/api/reclamos/${editId}`, { method:'PUT', body: base });
         setReclamos(p => p.map(x => x.id === editId ? r.reclamo : x));
-        if (provCambio) provNuevo = base.proveedor;
+        if (provCambio) { provNuevo = base.proveedor; tokenNuevo = r.reclamo.portalToken; }
         setEditId(null); showToast("✅ Reclamo actualizado");
       } else {
         const r = await apiFetch('/api/reclamos', { method:'POST', body: base });
         setReclamos(p => [r.reclamo, ...p]);
-        if (base.proveedor) provNuevo = base.proveedor;
+        if (base.proveedor) { provNuevo = base.proveedor; tokenNuevo = r.reclamo.portalToken; }
         showToast("✅ Reclamo creado");
       }
       setForm(EF); setShowForm(false);
-      // WhatsApp automático al asignar proveedor
+      // WhatsApp automático al asignar proveedor — el link usa el portalToken
+      // que devuelve la API (uno por reclamo, ver PROYECTO.md "sesión 5").
       if (provNuevo) {
         const prov = proveedores.find(p => p.nombre === provNuevo);
-        if (prov?.tel) {
-          const link = portalLink({portal:'prov', id:prov.id});
+        if (prov?.tel && tokenNuevo) {
+          const link = portalLink({portal:'prov', t:tokenNuevo});
           const waMsg = `Houscare — Hola ${prov.nombre}, tenés un trabajo asignado. Por favor revisá el detalle y confirmá si podés tomarlo:\n${link}`;
           setTimeout(() => window.open(`https://wa.me/${prov.tel.replace(/\D/g,"")}?text=${encodeURIComponent(waMsg)}`, '_blank'), 400);
         }
@@ -953,20 +1122,6 @@ function App() {
       if (rating && rec?.proveedor) await updateProvCal(rec.proveedor, rating);
       setDetId(null); setRatingModal(null); setRatingComent(''); showToast("✅ Reclamo cerrado");
     } catch(e) { alert(e.message); }
-  };
-  // guardarRatingInq: SIGUE en Supabase — la usa el portal inquilino (sin login).
-  const guardarRatingInq = async (id, rating, comentario) => {
-    setReclamos(p => p.map(r => r.id === id ? {...r, ratingInq:rating, comentarioInq:comentario} : r));
-    await sb.from('reclamos').update({rating_inq:rating, comentario_inq:comentario}).eq('id',id);
-    showToast("⭐ Gracias por tu calificación");
-  };
-  // aprobar: SIGUE en Supabase — la usa el portal propietario (sin login).
-  const aprobar = async (id, dec) => {
-    const extra = dec === "aprobada" ? { fechaAprobacion:today() } : {};
-    setReclamos(p => p.map(r => r.id === id ? { ...r, aprobacion:dec, ...extra } : r));
-    const dbExtra = dec === "aprobada" ? { fecha_aprobacion:today() } : {};
-    await sb.from('reclamos').update({ aprobacion:dec, ...dbExtra }).eq('id', id);
-    showToast(dec === "aprobada" ? "✅ Aprobado" : "❌ Rechazado");
   };
   // solAprob: admin, vía API.
   const solAprob = async id => {
@@ -1032,220 +1187,17 @@ function App() {
   );
 
   // ════════════════════════════════════════════════════════
-  //  PORTAL INQUILINO
+  //  PORTALES EXTERNOS — vía portal_token (sesión 5, 09/08/2026)
+  //  Cada uno es un componente independiente que se auto-carga con su
+  //  propio GET público (sin login, sin depender del estado del admin).
+  //  Ver PortalInqNuevo / PortalInqToken / PortalProvToken / PortalOwnToken
+  //  arriba de App().
   // ════════════════════════════════════════════════════════
-  if (portal?.type === "inq") {
-    const dir = portal.dir;
-    const sub = async () => {
-      if (!inqF.nombre || !inqF.descripcion) { alert("Completá nombre y descripción"); return; }
-      const newRec = { id:nextId(), fecha:today(), ultimaAct:today(), propiedad:dir, inquilino:inqF.nombre, email:inqF.email||"", telInq:inqF.tel||"", sector:inqF.sector, prioridad:"Media", estado:"Pendiente", proveedor:"", costoEst:0, costoReal:0, quienPaga:"Sin definir", pctInq:0, pctProp:0, pctInmob:0, descripcion:inqF.descripcion, notas:"", fotos:inqF.fotos, aprobacion:null, provAceptado:null, mensajes:[], comentarioCierre:'', ratingInq:0, comentarioInq:'' };
-      setReclamos(p => [newRec, ...p]);
-      await sb.from('reclamos').insert(toRow(newRec));
-      setInqOk(newRec.id); setInqF(EIF);
-    };
-    if (inqOk) return (
-      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
-        <div style={PH}><div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div></div>
-        <div style={{padding:32,textAlign:"center"}}>
-          <div style={{fontSize:64,marginBottom:16}}>✅</div>
-          <h2 style={{margin:"0 0 8px",color:"#065F46",fontWeight:900,fontSize:22}}>¡Reclamo enviado!</h2>
-          <p style={{color:"#475569",fontSize:14,marginBottom:20}}>Tu reclamo fue registrado. La inmobiliaria se va a contactar pronto.</p>
-          <div style={{background:"#D1FAE5",borderRadius:14,padding:20,marginBottom:24}}>
-            <div style={{fontSize:12,color:"#065F46",fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Número de reclamo</div>
-            <div style={{fontSize:36,fontWeight:900,color:"#065F46"}}>{inqOk}</div>
-          </div>
-          <p style={{fontSize:13,color:"#94A3B8",marginBottom:24}}>Guardá este número para hacer seguimiento.</p>
-          <button onClick={() => setInqOk(null)} style={BB}>Reportar otro problema</button>
-          <button onClick={() => {
-            if(portal?.fromAdmin){ setPortal(null); setTab("portales"); setInqOk(null); }
-            else { try{ window.close(); }catch(e){} window.location.href = window.location.pathname; }
-          }} style={{...BG,marginTop:10}}>← Salir del portal</button>
-        </div>
-      </div>
-    );
-    const recProp = reclamos.filter(r=>r.propiedad===dir);
-    return (
-      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
-        <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Inquilino</div><div style={{color:"#94A3B8",fontSize:11}}>{dir}</div></div></div>
-            {portal?.fromAdmin&&<button onClick={()=>{setPortal(null);setTab("portales");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>}
-          </div>
-          <div style={{display:"flex",gap:2,marginTop:10}}>
-            {[["nuevo","➕ Nuevo reclamo"],["seguimiento","📋 Mis reclamos"+( recProp.length>0?" ("+recProp.length+")":"")]].map(([id,l])=>(
-              <button key={id} onClick={()=>setInqTab(id)} style={{flex:1,background:inqTab===id?"#fff":"transparent",color:inqTab===id?"#0F1E3C":"rgba(255,255,255,.7)",border:"none",borderRadius:"8px 8px 0 0",padding:"7px 4px",fontWeight:inqTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
-            ))}
-          </div>
-        </div>
-        {inqTab==="seguimiento"&&(
-          <div style={{padding:"12px 16px 60px"}}>
-            {recProp.length===0&&<div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48,marginBottom:10}}>📋</div><div>No hay reclamos registrados para esta propiedad.</div></div>}
-            {recProp.map(r=>{
-              const [open, setOpen] = [false,()=>{}]; // local expand handled by component
-              return <InqReclamoCard key={r.id} r={r} onRating={guardarRatingInq} onMsg={sendMsg}/>;
-            })}
-          </div>
-        )}
-        {inqTab==="nuevo"&&<div style={{padding:"16px 16px 60px"}}>
-          <div style={{background:"#EFF6FF",borderRadius:12,padding:"12px 14px",marginBottom:14,fontSize:13,color:"#1D44AA",fontWeight:600}}>Reportá un problema en tu propiedad. Te avisamos cuando esté resuelto.</div>
-          <div style={CARD}>
-            <div style={{marginBottom:14}}><label style={LBL}>Tu nombre *</label><input placeholder="Apellido, Nombre" value={inqF.nombre} onChange={e=>setInqF(f=>({...f,nombre:e.target.value}))} style={INP}/></div>
-            <div style={{marginBottom:14}}><label style={LBL}>Teléfono</label><input type="tel" placeholder="341-000-0000" value={inqF.tel||""} onChange={e=>setInqF(f=>({...f,tel:e.target.value}))} style={INP}/></div>
-            <div style={{marginBottom:14}}><label style={LBL}>Email</label><input type="email" placeholder="tu@email.com" value={inqF.email} onChange={e=>setInqF(f=>({...f,email:e.target.value}))} style={INP}/></div>
-            <div style={{marginBottom:14}}><label style={LBL}>Tipo de problema</label><select value={inqF.sector} onChange={e=>setInqF(f=>({...f,sector:e.target.value}))} style={INP}>{SECTORES.map(o=><option key={o}>{o}</option>)}</select></div>
-            <div style={{marginBottom:14}}><label style={LBL}>Descripción *</label><textarea placeholder="Describí el problema con el mayor detalle posible..." value={inqF.descripcion} onChange={e=>setInqF(f=>({...f,descripcion:e.target.value}))} style={{...INP,height:100,resize:"none"}}/></div>
-            <div style={{marginBottom:20}}>
-              <label style={LBL}>📷 Fotos del problema</label>
-              <input type="file" id="inq-file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{addFotosF(setInqF,"Inquilino",e.target.files);e.target.value="";}}/>
-              <label htmlFor="inq-file" style={{display:"block",background:"#F8FAFC",border:"1.5px dashed #CBD5E1",borderRadius:10,padding:"14px",cursor:"pointer",color:"#64748B",fontWeight:600,fontSize:13,textAlign:"center",boxSizing:"border-box"}}>📷 Agregar fotos</label>
-              {inqF.fotos.length > 0 && (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:8}}>
-                  {inqF.fotos.map((f,i) => (
-                    <div key={i} style={{position:"relative"}}>
-                      <img src={f.dataUrl} alt="" style={{width:"100%",height:80,objectFit:"cover",borderRadius:8,border:"1.5px solid #E2E8F0"}}/>
-                      <button onClick={()=>setInqF(fr=>({...fr,fotos:fr.fotos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:3,right:3,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:12}}>×</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button onClick={sub} style={BB}>Enviar reclamo</button>
-          </div>
-        </div>}
-      </div>
-    );
-  }
-
-  // ════════════════════════════════════════════════════════
-  //  PORTAL PROVEEDOR
-  // ════════════════════════════════════════════════════════
-  if (portal?.type === "prov") {
-    const prov = proveedores.find(p => p.id === portal.id);
-    const mis  = reclamos.filter(r => r.proveedor === prov?.nombre && r.estado !== "Cerrado");
-
-    const handleAccept = async (id) => {
-      const t = today();
-      setReclamos(p=>p.map(x=>x.id===id?{...x,provAceptado:"aceptado",estado:"En proceso",ultimaAct:t,fechaAceptacion:t}:x));
-      await sb.from('reclamos').update({provAceptado:"aceptado",estado:"En proceso",ultima_act:t,fecha_aceptacion:t}).eq('id',id);
-      showToast("✅ Trabajo aceptado");
-    };
-    const handleReject = async (id) => {
-      const t = today();
-      setReclamos(p=>p.map(x=>x.id===id?{...x,provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultimaAct:t}:x));
-      await sb.from('reclamos').update({provAceptado:"rechazado",estado:"Pendiente",proveedor:"",ultima_act:t}).eq('id',id);
-      showToast("❌ Trabajo rechazado");
-    };
-    const handleTerminado = async (id) => {
-      const t = today();
-      setReclamos(p=>p.map(x=>x.id===id?{...x,estado:"Resuelto",ultimaAct:t}:x));
-      await sb.from('reclamos').update({estado:"Resuelto",ultima_act:t}).eq('id',id);
-      showToast("✅ Marcado como terminado");
-    };
-    const handleCobrado = async (id) => {
-      setReclamos(p=>p.map(x=>x.id===id?{...x,cobrado:true}:x));
-      await sb.from('reclamos').update({cobrado:true}).eq('id',id);
-      showToast("💰 ¡Cobro registrado!");
-    };
-
-    return (
-      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
-        <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Proveedor</div><div style={{color:"#94A3B8",fontSize:11}}>{prov?.nombre}</div></div></div>
-            {portal?.fromAdmin
-              ? <button onClick={()=>{setPortal(null);setTab("portales");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>
-              : <button onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>📋 Mis Tareas</button>
-            }
-          </div>
-        </div>
-        <div style={{padding:"12px 16px 60px"}}>
-          <div style={{...CARD,background:"#EFF6FF",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:700,color:"#1D44AA"}}>🔧 {prov?.rubro} · {mis.length} trabajo{mis.length!==1?"s":""} asignado{mis.length!==1?"s":""}</div>
-            {prov?.tel&&<div style={{fontSize:12,color:"#3B82F6",marginTop:4}}>📞 {prov.tel} · 📍 {prov?.zona}</div>}
-          </div>
-          {mis.length === 0 && <div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>Sin trabajos pendientes</div></div>}
-          {mis.map(r => (
-            <ProvJobCard key={r.id} r={r}
-              onAccept={handleAccept}
-              onReject={handleReject}
-              onTerminado={handleTerminado}
-              onCobrado={handleCobrado}
-              onMsg={sendMsg}
-              onFotos={addFotosR}
-              showFn={showToast}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ════════════════════════════════════════════════════════
-  //  PORTAL PROPIETARIO
-  // ════════════════════════════════════════════════════════
-  if (portal?.type === "own") {
-    const owner = OWNERS.find(o => o.id === portal.id);
-    const dirs  = PROPS_DATA.filter(p => p.ownerId === portal.id).map(p => p.dir);
-    const mis   = reclamos.filter(r => dirs.includes(r.propiedad));
-    const pend  = mis.filter(r => r.aprobacion === "pendiente");
-    return (
-      <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
-        <div style={PH}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><Logo/><div><div style={{color:"#fff",fontWeight:800,fontSize:15}}>Portal Propietario</div><div style={{color:"#94A3B8",fontSize:11}}>{owner?.nombre}</div></div></div>
-            {portal?.fromAdmin&&<button onClick={()=>{setPortal(null);setTab("portales");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:600,fontSize:11,cursor:"pointer"}}>← Portales</button>}
-          </div>
-        </div>
-        <div style={{padding:"12px 16px 60px"}}>
-          <div style={{...CARD,background:"#EFF6FF",marginBottom:6}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#1D44AA",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Tus propiedades</div>
-            {dirs.map(d => <div key={d} style={{fontSize:13,color:"#1E40AF",marginBottom:2}}>🏠 {d}</div>)}
-          </div>
-          {pend.length > 0 && <div style={{background:"#FEF3C7",borderLeft:"4px solid #F59E0B",padding:"10px 14px",borderRadius:10,marginBottom:12,fontSize:13,color:"#92400E",fontWeight:600}}>⏳ Tenés {pend.length} reclamo{pend.length>1?"s":""} esperando tu aprobación</div>}
-          {mis.length === 0 && <div style={{textAlign:"center",padding:"60px 0",color:"#94A3B8"}}><div style={{fontSize:48}}>✅</div><div style={{marginTop:10}}>Sin reclamos en tus propiedades</div></div>}
-          {mis.map(r => (
-            <div key={r.id} style={{...CARD,borderLeft:`4px solid ${PC[r.prioridad]?.d}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span><Badge label={r.estado} sm/></div>
-              <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
-              <div style={{fontSize:12,color:"#64748B",marginBottom:4}}>{r.sector} · {r.inquilino}</div>
-              <div style={{fontSize:13,color:"#475569",marginBottom:10,lineHeight:1.5}}>{r.descripcion}</div>
-              {r.costoEst > 0 && (
-                <div style={{background:"#F8FAFC",borderRadius:10,padding:"10px 12px",marginBottom:10}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Detalle del costo</div>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:13,color:"#475569"}}>Costo estimado</span><span style={{fontSize:13,fontWeight:700}}>{fmt$(r.costoEst)}</span></div>
-                  {r.costoReal > 0 && <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:13,color:"#475569"}}>Costo real</span><span style={{fontSize:13,fontWeight:700}}>{fmt$(r.costoReal)}</span></div>}
-                  <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:13,color:"#475569"}}>¿Quién paga?</span><span style={{fontSize:13,fontWeight:700}}>{r.quienPaga}</span></div>
-                  {r.quienPaga === "Por Porcentaje" && (
-                    <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
-                      {[["Propietario (vos)",r.pctProp],["Inquilino",r.pctInq],["Inmobiliaria",r.pctInmob]].map(([l,pct]) => (
-                        <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{fontSize:12,color:"#475569"}}>{l}</span>
-                          <span style={{fontSize:12,fontWeight:700,color:l.includes("vos")?"#991B1B":"#0F1E3C"}}>{pct}% → {fmt$(r.costoEst*pct/100)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {r.quienPaga === "Propietario" && <div style={{marginTop:6,fontSize:12,color:"#991B1B",fontWeight:600}}>⚠️ Este costo corre por tu cuenta</div>}
-                </div>
-              )}
-              {r.fotos && r.fotos.length > 0 && <div style={{marginBottom:10}}><Galeria fotos={r.fotos}/></div>}
-              {r.aprobacion === "pendiente" && r.costoEst > 0 && (
-                <div>
-                  <div style={{background:"#FEF3C7",borderRadius:10,padding:"10px 12px",marginBottom:8,fontSize:13,color:"#92400E",fontWeight:600}}>⏳ Se requiere tu aprobación para continuar con la reparación</div>
-                  <div style={{display:"flex",gap:8}}>
-                    <button onClick={()=>aprobar(r.id,"aprobada")} style={{flex:1,background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✅ Aprobar</button>
-                    <button onClick={()=>aprobar(r.id,"rechazada")} style={{flex:1,background:"#EF4444",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer"}}>❌ Rechazar</button>
-                  </div>
-                </div>
-              )}
-              {r.aprobacion === "aprobada"  && <div style={{background:"#D1FAE5",borderRadius:10,padding:"8px 12px",textAlign:"center",fontSize:13,color:"#065F46",fontWeight:700}}>✅ Aprobado — reparación autorizada</div>}
-              {r.aprobacion === "rechazada" && <div style={{background:"#FEE2E2",borderRadius:10,padding:"8px 12px",textAlign:"center",fontSize:13,color:"#991B1B",fontWeight:700}}>❌ Rechazado — se notificó a la inmobiliaria</div>}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const backToPortales = () => setPortal(null) || setTab("portales");
+  if (portal?.type === "inq-nuevo") return <PortalInqNuevo pid={portal.pid} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
+  if (portal?.type === "inq")       return <PortalInqToken  token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
+  if (portal?.type === "prov")      return <PortalProvToken token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
+  if (portal?.type === "own")       return <PortalOwnToken  token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
 
   // ════════════════════════════════════════════════════════
   //  ADMIN
@@ -1402,7 +1354,7 @@ function App() {
                 <div style={{fontSize:12,color:"#475569",marginBottom:2}}>📞 {p.tel||"—"}</div>
                 <div style={{fontSize:12,color:"#475569",marginBottom:10}}>✉️ {p.email||"—"}</div>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
-                  <button onClick={()=>setPortal({type:"prov",id:p.id})} style={{...BB,flex:2,fontSize:12,padding:"9px 0"}}>Ver portal</button>
+                  <button onClick={()=>{setTab("portales");setPortalTab("prov");setPortalBusq(p.nombre);}} style={{...BB,flex:2,fontSize:12,padding:"9px 0"}}>Ver trabajos</button>
                   {p.tel&&<a href={`https://wa.me/${p.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                   <button onClick={()=>deleteProv(p.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>🗑</button>
                 </div>
@@ -1428,10 +1380,13 @@ function App() {
           </div>
 
           {/* ── INQUILINOS ── */}
+          {/* Único sub-tab que sigue siendo "por propiedad": es el punto de */}
+          {/* entrada para reportar un problema nuevo, no requiere token */}
+          {/* (ver POST /api/portal/inquilino/nueva/<pid> en el backend). */}
           {portalTab==="inq" && (
             <div style={{padding:"0 16px"}}>
               {(propiedades.length>0?propiedades:PROPS_DATA).filter(p=>!portalBusq||p.dir.toLowerCase().includes(portalBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(portalBusq.toLowerCase())).map((prop)=>{
-                const link = portalLink({portal:'inq', dir:encodeURIComponent(prop.dir)});
+                const link = portalLink({portal:'inq', pid:prop.id});
                 const recProp = reclamos.filter(r=>r.propiedad===prop.dir&&r.estado!=="Cerrado").length;
                 const telNum = (prop.telInq||"").replace(/\D/g,"");
                 const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de reclamos:\n${link}`)}` : `https://wa.me/?text=${encodeURIComponent(`Houscare — Portal de ${prop.dir}:\n${link}`)}`;
@@ -1444,7 +1399,7 @@ function App() {
                     {prop.inquilino&&<div style={{fontSize:12,color:"#64748B",marginBottom:2}}>👤 {prop.inquilino}</div>}
                     {prop.telInq&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:6}}>📞 {prop.telInq}</div>}
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"inq",dir:prop.dir,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      <button onClick={()=>setPortal({type:"inq-nuevo",pid:prop.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
                       <a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>
                     </div>
                   </div>
@@ -1454,52 +1409,64 @@ function App() {
           )}
 
           {/* ── PROVEEDORES ── */}
+          {/* Cada link de proveedor es por RECLAMO (portalToken), no por */}
+          {/* proveedor — así que acá se listan los reclamos activos con */}
+          {/* proveedor asignado, en vez de la lista de proveedores. */}
           {portalTab==="prov" && (
             <div style={{padding:"0 16px"}}>
-              {proveedores.filter(p=>!portalBusq||p.nombre.toLowerCase().includes(portalBusq.toLowerCase())||p.rubro.toLowerCase().includes(portalBusq.toLowerCase())).map(p=>{
-                const link = portalLink({portal:'prov', id:p.id});
-                const activos = reclamos.filter(r=>r.proveedor===p.nombre&&r.estado!=="Cerrado").length;
-                const telNum = (p.tel||"").replace(/\D/g,"");
-                const waDirecto = telNum ? `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tus trabajos asignados:\n${link}`)}` : null;
+              {reclamos.filter(r=>r.proveedor&&r.estado!=="Cerrado").filter(r=>!portalBusq||r.proveedor.toLowerCase().includes(portalBusq.toLowerCase())||r.id.toLowerCase().includes(portalBusq.toLowerCase())||r.propiedad.toLowerCase().includes(portalBusq.toLowerCase())).map(r=>{
+                const prov = proveedores.find(p=>p.nombre===r.proveedor);
+                const link = portalLink({portal:'prov', t:r.portalToken});
+                const telNum = (prov?.tel||"").replace(/\D/g,"");
+                const waDirecto = telNum ? `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tu trabajo asignado (${r.id}):\n${link}`)}` : null;
                 return (
-                  <div key={p.id} style={{...CARD,marginBottom:10}}>
+                  <div key={r.id} style={{...CARD,marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{p.nombre}</div>
-                      <Stars n={p.cal||5}/>
+                      <div>
+                        <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6,marginRight:6}}>{r.id}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{r.proveedor}</span>
+                      </div>
+                      <Badge label={r.estado} sm/>
                     </div>
-                    <div style={{fontSize:11,color:"#1D44AA",marginBottom:2}}>🔧 {p.rubro}{p.zona?" · 📍 "+p.zona:""}</div>
-                    {p.notas&&<div style={{fontSize:11,color:"#64748B",marginBottom:2,fontStyle:"italic"}}>"{p.notas}"</div>}
-                    <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>📋 {activos} trabajo{activos!==1?"s":""} activo{activos!==1?"s":""}</div>
+                    <div style={{fontSize:11,color:"#1D44AA",marginBottom:2}}>🔧 {prov?.rubro||r.sector}{prov?.zona?" · 📍 "+prov.zona:""}</div>
+                    <div style={{fontSize:11,color:"#64748B",marginBottom:8}}>🏠 {r.propiedad}</div>
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"prov",id:p.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                      <button onClick={()=>setPortal({type:"prov",token:r.portalToken,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
                       {waDirecto&&<a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                     </div>
                   </div>
                 );
               })}
+              {reclamos.filter(r=>r.proveedor&&r.estado!=="Cerrado").length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8",fontSize:13}}>Sin trabajos activos asignados a proveedores.</div>}
             </div>
           )}
 
           {/* ── PROPIETARIOS ── */}
+          {/* Mismo criterio: el link es por RECLAMO, se listan los reclamos */}
+          {/* activos cuyo propietario se puede resolver (propiedad → ownerId). */}
           {portalTab==="own" && (
             <div style={{padding:"0 16px"}}>
-              {(propietarios.length>0?propietarios:OWNERS).filter(o=>!portalBusq||o.nombre.toLowerCase().includes(portalBusq.toLowerCase())).map(o=>{
-                const link = portalLink({portal:'own', id:o.id});
-                const dirs = (propiedades.length>0?propiedades:PROPS_DATA).filter(p=>p.ownerId===o.id).map(p=>p.dir);
-                const pa = reclamos.filter(r=>dirs.includes(r.propiedad)&&r.aprobacion==="pendiente").length;
-                const telNum = (o.tel||"").replace(/\D/g,"");
-                const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de propietario:\n${link}`)}` : null;
+              {reclamos.filter(r=>r.estado!=="Cerrado").map(r=>{
+                const prop = (propiedades.length>0?propiedades:PROPS_DATA).find(p=>p.dir===r.propiedad);
+                const owner = prop && (propietarios.length>0?propietarios:OWNERS).find(o=>o.id===prop.ownerId);
+                return owner ? {r, owner} : null;
+              }).filter(Boolean).filter(({r,owner})=>!portalBusq||owner.nombre.toLowerCase().includes(portalBusq.toLowerCase())||r.id.toLowerCase().includes(portalBusq.toLowerCase())).map(({r,owner})=>{
+                const link = portalLink({portal:'own', t:r.portalToken});
+                const telNum = (owner.tel||"").replace(/\D/g,"");
+                const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de propietario (${r.id}):\n${link}`)}` : null;
                 return (
-                  <div key={o.id} style={{...CARD,marginBottom:10}}>
+                  <div key={r.id} style={{...CARD,marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{o.nombre}</div>
-                      {pa>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ {pa} pendiente{pa!==1?"s":""}</span>}
+                      <div>
+                        <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6,marginRight:6}}>{r.id}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{owner.nombre}</span>
+                      </div>
+                      {r.aprobacion==="pendiente"&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ pendiente</span>}
                     </div>
-                    <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>🏠 {dirs.length} propiedad{dirs.length!==1?"es":""}</div>
-                    {o.tel&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:2}}>📞 {o.tel}</div>}
-                    {o.email&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>✉️ {o.email}</div>}
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"own",id:o.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                    <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>🏠 {r.propiedad}</div>
+                    {owner.tel&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:2}}>📞 {owner.tel}</div>}
+                    <div style={{display:"flex",gap:6,marginTop:6}}>
+                      <button onClick={()=>setPortal({type:"own",token:r.portalToken,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
                       {waDirecto&&<a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                     </div>
                   </div>
