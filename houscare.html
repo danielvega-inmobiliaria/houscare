@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Houscare — Daniel Vega Inversiones Inmobiliarias</title>
+<title>Houscare</title>
+<meta name="apple-mobile-web-app-title" content="Houscare">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -832,6 +833,18 @@ function App() {
   const [loginForm,  setLoginForm]  = useState({ email:"", password:"" });
   const [loginErr,   setLoginErr]   = useState("");
   const [loginBusy,  setLoginBusy]  = useState(false);
+  // Registro de cuenta nueva (sesión 8, 11/08/2026) — abierto para cualquiera
+  // que tenga la URL, sin filtro de plan/invitación por ahora.
+  const [showRegister,  setShowRegister]  = useState(false);
+  const [registerForm,  setRegisterForm]  = useState({ org_nombre:"", nombre:"", email:"", password:"" });
+  const [registerErr,   setRegisterErr]   = useState("");
+  const [registerBusy,  setRegisterBusy]  = useState(false);
+  // Cambio de contraseña estando logueado (sesión 8) — "olvidé mi contraseña"
+  // sin sesión queda pendiente para cuando se arme el envío de emails (Fase 3).
+  const [showChangePass, setShowChangePass] = useState(false);
+  const [changePassForm, setChangePassForm] = useState({ actual:"", nueva:"", nueva2:"" });
+  const [changePassErr,  setChangePassErr]  = useState("");
+  const [changePassBusy, setChangePassBusy] = useState(false);
 
   // ── Carga de datos del admin vía API REST (Fase 2) ──
   // Sin auto-seed: si la org está recién creada en Postgres, arranca vacía
@@ -910,6 +923,44 @@ function App() {
     try { await apiFetch('/api/auth/logout', { method:'POST' }); } catch (e) {}
     setUsuario(null);
     setReclamos([]); setPropiedades([]); setPropietarios([]); setProveedores(PROVEEDORES_INIT);
+  };
+
+  const doRegistro = async () => {
+    const { org_nombre, nombre, email, password } = registerForm;
+    if (!org_nombre || !nombre || !email || !password) { setRegisterErr("Completá todos los campos"); return; }
+    if (password.length < 8) { setRegisterErr("La contraseña debe tener al menos 8 caracteres"); return; }
+    setRegisterBusy(true); setRegisterErr("");
+    try {
+      const r = await apiFetch('/api/auth/registro', { method:'POST', body:{ org_nombre, nombre, email, password } });
+      setUsuario(r.usuario);
+      setShowRegister(false);
+      setRegisterForm({ org_nombre:"", nombre:"", email:"", password:"" });
+      setLoading(true);
+      await loadAdminData();
+      setLoading(false);
+    } catch (e) {
+      setRegisterErr(e.message || "No se pudo crear la cuenta");
+    } finally {
+      setRegisterBusy(false);
+    }
+  };
+
+  const doCambiarPassword = async () => {
+    const { actual, nueva, nueva2 } = changePassForm;
+    if (!actual || !nueva || !nueva2) { setChangePassErr("Completá todos los campos"); return; }
+    if (nueva.length < 8) { setChangePassErr("La contraseña nueva debe tener al menos 8 caracteres"); return; }
+    if (nueva !== nueva2) { setChangePassErr("Las contraseñas nuevas no coinciden"); return; }
+    setChangePassBusy(true); setChangePassErr("");
+    try {
+      await apiFetch('/api/auth/cambiar-password', { method:'POST', body:{ password_actual:actual, password_nueva:nueva } });
+      setShowChangePass(false);
+      setChangePassForm({ actual:"", nueva:"", nueva2:"" });
+      showToast("🔑 Contraseña actualizada");
+    } catch (e) {
+      setChangePassErr(e.message || "No se pudo cambiar la contraseña");
+    } finally {
+      setChangePassBusy(false);
+    }
   };
 
   // ── Links directos a portales ──
@@ -1166,23 +1217,50 @@ function App() {
     </div>
   );
 
-  // ── Login admin (no aplica a portales — esos entran directo sin sesión) ──
+  // ── Login / Registro admin (no aplica a portales — esos entran directo sin sesión) ──
   if (!portal && !usuario) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#F0F4F8",padding:24}}>
       <Logo size={52}/>
       <div style={{fontSize:20,fontWeight:900,color:"#0F1E3C",margin:"12px 0 24px"}}>Houscare</div>
-      <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:340,boxShadow:"0 1px 6px rgba(0,0,0,.07)",boxSizing:"border-box"}}>
-        <div style={{marginBottom:14}}>
-          <label style={LBL}>Email</label>
-          <input type="email" autoComplete="username" value={loginForm.email} onChange={e=>setLoginForm(f=>({...f,email:e.target.value}))} style={INP}/>
+
+      {!showRegister ? (
+        <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:340,boxShadow:"0 1px 6px rgba(0,0,0,.07)",boxSizing:"border-box"}}>
+          <div style={{marginBottom:14}}>
+            <label style={LBL}>Email</label>
+            <input type="email" autoComplete="username" value={loginForm.email} onChange={e=>setLoginForm(f=>({...f,email:e.target.value}))} style={INP}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={LBL}>Contraseña</label>
+            <input type="password" autoComplete="current-password" value={loginForm.password} onChange={e=>setLoginForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&doLogin()} style={INP}/>
+          </div>
+          {loginErr && <div style={{color:"#991B1B",fontSize:12,marginBottom:12,fontWeight:600}}>{loginErr}</div>}
+          <button onClick={doLogin} disabled={loginBusy} style={{...BB,opacity:loginBusy?.7:1}}>{loginBusy?"Ingresando…":"Ingresar"}</button>
+          <button onClick={()=>{setShowRegister(true);setLoginErr("");}} style={{...BG,marginTop:10,background:"transparent",color:"#1D44AA"}}>Crear cuenta nueva</button>
         </div>
-        <div style={{marginBottom:14}}>
-          <label style={LBL}>Contraseña</label>
-          <input type="password" autoComplete="current-password" value={loginForm.password} onChange={e=>setLoginForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&doLogin()} style={INP}/>
+      ) : (
+        <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:340,boxShadow:"0 1px 6px rgba(0,0,0,.07)",boxSizing:"border-box"}}>
+          <div style={{fontSize:14,fontWeight:800,color:"#0F1E3C",marginBottom:14}}>Crear cuenta de tu inmobiliaria</div>
+          <div style={{marginBottom:12}}>
+            <label style={LBL}>Nombre de la inmobiliaria</label>
+            <input type="text" value={registerForm.org_nombre} onChange={e=>setRegisterForm(f=>({...f,org_nombre:e.target.value}))} style={INP}/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <label style={LBL}>Tu nombre</label>
+            <input type="text" value={registerForm.nombre} onChange={e=>setRegisterForm(f=>({...f,nombre:e.target.value}))} style={INP}/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <label style={LBL}>Email</label>
+            <input type="email" autoComplete="username" value={registerForm.email} onChange={e=>setRegisterForm(f=>({...f,email:e.target.value}))} style={INP}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={LBL}>Contraseña (mínimo 8 caracteres)</label>
+            <input type="password" autoComplete="new-password" value={registerForm.password} onChange={e=>setRegisterForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&doRegistro()} style={INP}/>
+          </div>
+          {registerErr && <div style={{color:"#991B1B",fontSize:12,marginBottom:12,fontWeight:600}}>{registerErr}</div>}
+          <button onClick={doRegistro} disabled={registerBusy} style={{...BB,opacity:registerBusy?.7:1}}>{registerBusy?"Creando cuenta…":"Crear cuenta"}</button>
+          <button onClick={()=>{setShowRegister(false);setRegisterErr("");}} style={{...BG,marginTop:10}}>Volver a ingresar</button>
         </div>
-        {loginErr && <div style={{color:"#991B1B",fontSize:12,marginBottom:12,fontWeight:600}}>{loginErr}</div>}
-        <button onClick={doLogin} disabled={loginBusy} style={{...BB,opacity:loginBusy?.7:1}}>{loginBusy?"Ingresando…":"Ingresar"}</button>
-      </div>
+      )}
     </div>
   );
 
@@ -1220,11 +1298,12 @@ function App() {
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <Logo/>
             <div>
-              <div style={{color:"#fff",fontWeight:800,fontSize:15,lineHeight:1.2}}>Daniel Vega</div>
-              <div style={{color:"#94A3B8",fontSize:11}}>Inversiones Inmobiliarias</div>
+              <div style={{color:"#fff",fontWeight:800,fontSize:15,lineHeight:1.2}}>{usuario?.nombre || "Houscare"}</div>
+              <div style={{color:"#94A3B8",fontSize:11}}>{usuario?.org_nombre || ""}</div>
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{setShowChangePass(true);setChangePassErr("");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:14,cursor:"pointer"}} title="Cambiar contraseña">🔑</button>
             <button onClick={()=>{ if(confirm("¿Cerrar sesión?")) doLogout(); }} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:14,cursor:"pointer"}} title={`Salir (${usuario?.nombre||""})`}>🚪</button>
             <button onClick={refresh} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:16,cursor:"pointer"}} title="Actualizar datos">🔄</button>
             <button onClick={()=>{
@@ -1745,6 +1824,32 @@ function App() {
             ) : (
               <div style={{textAlign:"center",color:"#059669",fontSize:14,fontWeight:600}}>✅ Reclamo cerrado el {fmtDate(det.ultimaAct)}</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CAMBIAR CONTRASEÑA (sesión 8, 11/08/2026) ── */}
+      {showChangePass && (
+        <div onClick={()=>setShowChangePass(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:360,boxSizing:"border-box"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <h3 style={{margin:0,fontSize:16,fontWeight:900,color:"#0F1E3C"}}>🔑 Cambiar contraseña</h3>
+              <button onClick={()=>setShowChangePass(false)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontSize:16,color:"#64748B"}}>x</button>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={LBL}>Contraseña actual</label>
+              <input type="password" autoComplete="current-password" value={changePassForm.actual} onChange={e=>setChangePassForm(f=>({...f,actual:e.target.value}))} style={INP}/>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={LBL}>Contraseña nueva (mínimo 8 caracteres)</label>
+              <input type="password" autoComplete="new-password" value={changePassForm.nueva} onChange={e=>setChangePassForm(f=>({...f,nueva:e.target.value}))} style={INP}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={LBL}>Repetir contraseña nueva</label>
+              <input type="password" autoComplete="new-password" value={changePassForm.nueva2} onChange={e=>setChangePassForm(f=>({...f,nueva2:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&doCambiarPassword()} style={INP}/>
+            </div>
+            {changePassErr && <div style={{color:"#991B1B",fontSize:12,marginBottom:12,fontWeight:600}}>{changePassErr}</div>}
+            <button onClick={doCambiarPassword} disabled={changePassBusy} style={{...BB,opacity:changePassBusy?.7:1}}>{changePassBusy?"Guardando…":"Guardar nueva contraseña"}</button>
           </div>
         </div>
       )}
