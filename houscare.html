@@ -551,6 +551,16 @@ function PortalInqNuevo({ pid, fromAdmin, onBack }) {
   const [f, setF] = React.useState({ nombre:"", tel:"", email:"", sector:"Plomería", descripcion:"", fotos:[] });
   const [ok, setOk] = React.useState(null); // reclamo creado
   const [busy, setBusy] = React.useState(false);
+  const [prop, setProp] = React.useState(null); // datos de la propiedad (sesión 8: mostrar dirección + precargar inquilino)
+
+  React.useEffect(() => {
+    apiFetch(`/api/portal/inquilino/propiedad/${pid}`).then(res => {
+      setProp(res.propiedad);
+      // Precarga si ya había un inquilino cargado en la propiedad -- sigue siendo editable,
+      // por si reporta otra persona de la misma dirección.
+      setF(fr => ({ ...fr, nombre: res.propiedad.inquilino || fr.nombre, tel: res.propiedad.tel || fr.tel, email: res.propiedad.email || fr.email }));
+    }).catch(() => {}); // si falla, el form sigue andando en blanco (no es bloqueante)
+  }, [pid]);
 
   const addFotos = files => {
     Array.from(files).forEach(file => readFile(file, url => {
@@ -589,7 +599,7 @@ function PortalInqNuevo({ pid, fromAdmin, onBack }) {
   return (
     <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
       {Toast}
-      <PortalHeader titulo="Portal Inquilino" fromAdmin={fromAdmin} onBack={onBack}/>
+      <PortalHeader titulo="Portal Inquilino" sub={prop?.dir} fromAdmin={fromAdmin} onBack={onBack}/>
       <div style={{padding:"16px 16px 60px"}}>
         <div style={{background:"#EFF6FF",borderRadius:12,padding:"12px 14px",marginBottom:14,fontSize:13,color:"#1D44AA",fontWeight:600}}>Reportá un problema en tu propiedad. Te avisamos cuando esté resuelto.</div>
         <div style={CARD_PORTAL}>
@@ -613,6 +623,7 @@ function PortalInqNuevo({ pid, fromAdmin, onBack }) {
               </div>
             )}
           </div>
+          <div style={{fontSize:12,color:"#64748B",textAlign:"center",marginBottom:10}}>📍 Podés seguir el proceso de tu reclamo desde este mismo link, una vez enviado.</div>
           <button onClick={enviar} disabled={busy} style={{...BB_PORTAL,opacity:busy?.7:1}}>{busy?"Enviando…":"Enviar reclamo"}</button>
         </div>
       </div>
@@ -712,6 +723,69 @@ function PortalProvToken({ token, fromAdmin, onBack }) {
   );
 }
 
+// ─── Portal Proveedor — vista "home": TODOS sus trabajos (sesión 8, 11/08/2026) ──
+// Link fijo por proveedor (portal_token en la tabla proveedores, distinto del
+// portal_token por reclamo que ya existía) -- pensado para guardar en la
+// pantalla de inicio del celular y no depender de un link nuevo por cada
+// trabajo asignado. Cada ítem de la lista lleva al detalle de ESE reclamo
+// (PortalProvToken de arriba), donde están las acciones (aceptar/rechazar/
+// chat/fotos/presupuesto/terminado/cobrado).
+function PortalProvHome({ token, fromAdmin, onBack }) {
+  const [data, setData] = React.useState(null);
+  const [err,  setErr]  = React.useState(null);
+  const [verHistorial, setVerHistorial] = React.useState(false);
+
+  React.useEffect(() => {
+    apiFetch(`/api/portal/proveedor/home/${token}`).then(setData).catch(e=>setErr(e.message));
+  }, [token]);
+
+  if (err) return <PortalError msg={err}/>;
+  if (!data) return <PortalLoading/>;
+  const { proveedor, activos, historial } = data;
+
+  const JobRow = ({ r }) => (
+    <a href={`${window.location.pathname}?portal=prov&t=${r.portalToken}`} style={{textDecoration:"none",display:"block"}}>
+      <div style={CARD_PORTAL}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span>
+          <Badge label={r.estado} sm/>
+        </div>
+        <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+        <div style={{fontSize:12,color:"#64748B"}}>{r.sector} · {fmtDate(r.fecha)}</div>
+      </div>
+    </a>
+  );
+
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      <PortalHeader titulo="Portal Proveedor" sub={proveedor.nombre} fromAdmin={fromAdmin} onBack={onBack}/>
+      <div style={{padding:"12px 16px 60px"}}>
+        <div style={CARD_PORTAL}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:15,color:"#0F1E3C"}}>{proveedor.nombre}</div>
+              <div style={{fontSize:12,color:"#64748B"}}>{proveedor.rubro}{proveedor.zona?" · 📍 "+proveedor.zona:""}</div>
+            </div>
+            <Stars n={proveedor.cal||5}/>
+          </div>
+        </div>
+
+        <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,margin:"16px 0 8px"}}>Trabajos activos ({activos.length})</div>
+        {activos.length===0 && <div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8",fontSize:13}}>No tenés trabajos activos por ahora.</div>}
+        {activos.map(r => <JobRow key={r.id} r={r}/>)}
+
+        <button onClick={()=>setVerHistorial(v=>!v)} style={{...BG_PORTAL,marginTop:16}}>{verHistorial?"Ocultar":"Ver"} historial ({historial.length})</button>
+        {verHistorial && (
+          <div style={{marginTop:10}}>
+            {historial.length===0 && <div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8",fontSize:13}}>Todavía no tenés trabajos cerrados.</div>}
+            {historial.map(r => <JobRow key={r.id} r={r}/>)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Portal Propietario — ver/aprobar UN reclamo por portalToken ─────────────
 function PortalOwnToken({ token, fromAdmin, onBack }) {
   const [showToast, Toast] = usePortalToast();
@@ -779,6 +853,69 @@ function PortalOwnToken({ token, fromAdmin, onBack }) {
   );
 }
 
+// ─── Portal Propietario — vista "home": TODAS sus propiedades y reclamos ─────
+// (sesión 8, 11/08/2026). Link fijo por propietario (portal_token en la
+// tabla propietarios) -- un propietario puede tener más de una propiedad.
+// Cada reclamo de la lista lleva al detalle puntual (PortalOwnToken de
+// arriba), donde está la acción de aprobar/rechazar presupuesto.
+function PortalOwnHome({ token, fromAdmin, onBack }) {
+  const [data, setData] = React.useState(null);
+  const [err,  setErr]  = React.useState(null);
+  const [verHistorial, setVerHistorial] = React.useState(false);
+
+  React.useEffect(() => {
+    apiFetch(`/api/portal/propietario/home/${token}`).then(setData).catch(e=>setErr(e.message));
+  }, [token]);
+
+  if (err) return <PortalError msg={err}/>;
+  if (!data) return <PortalLoading/>;
+  const { propietario, propiedades, activos, historial } = data;
+
+  const ClaimRow = ({ r }) => (
+    <a href={`${window.location.pathname}?portal=own&t=${r.portalToken}`} style={{textDecoration:"none",display:"block"}}>
+      <div style={CARD_PORTAL}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6}}>{r.id}</span>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            {r.aprobacion==="pendiente"&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ pendiente</span>}
+            <Badge label={r.estado} sm/>
+          </div>
+        </div>
+        <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:2}}>{r.propiedad}</div>
+        <div style={{fontSize:12,color:"#64748B"}}>{r.sector} · {fmtDate(r.fecha)}</div>
+      </div>
+    </a>
+  );
+
+  return (
+    <div style={{background:"#F0F4F8",minHeight:"100vh"}}>
+      <PortalHeader titulo="Portal Propietario" sub={propietario.nombre} fromAdmin={fromAdmin} onBack={onBack}/>
+      <div style={{padding:"12px 16px 60px"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Tus propiedades ({propiedades.length})</div>
+        {propiedades.length===0 && <div style={{textAlign:"center",padding:"16px 0",color:"#94A3B8",fontSize:13}}>Todavía no tenés propiedades cargadas.</div>}
+        {propiedades.map(p => (
+          <div key={p.id} style={{...CARD_PORTAL,padding:"10px 14px"}}>
+            <div style={{fontWeight:700,fontSize:13,color:"#0F1E3C"}}>{p.dir}</div>
+            {p.inquilino && <div style={{fontSize:11,color:"#64748B"}}>👤 {p.inquilino}</div>}
+          </div>
+        ))}
+
+        <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,margin:"16px 0 8px"}}>Reclamos activos ({activos.length})</div>
+        {activos.length===0 && <div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8",fontSize:13}}>No hay reclamos activos en tus propiedades.</div>}
+        {activos.map(r => <ClaimRow key={r.id} r={r}/>)}
+
+        <button onClick={()=>setVerHistorial(v=>!v)} style={{...BG_PORTAL,marginTop:16}}>{verHistorial?"Ocultar":"Ver"} historial ({historial.length})</button>
+        {verHistorial && (
+          <div style={{marginTop:10}}>
+            {historial.length===0 && <div style={{textAlign:"center",padding:"24px 0",color:"#94A3B8",fontSize:13}}>Todavía no hay reclamos cerrados.</div>}
+            {historial.map(r => <ClaimRow key={r.id} r={r}/>)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── App principal ────────────────────────────────────────────────────────────
 function App() {
   // ── Estado ──
@@ -808,6 +945,10 @@ function App() {
     if (type==='inq'  && pid)   return { type:'inq-nuevo', pid };
     if (type==='prov' && token) return { type:'prov', token };
     if (type==='own'  && token) return { type:'own',  token };
+    // Vistas "home" agregadas (sesión 8, 11/08/2026) — link fijo por
+    // proveedor/propietario, no por reclamo puntual (ver PortalProvHome/PortalOwnHome).
+    if (type==='provh' && token) return { type:'provh', token };
+    if (type==='ownh'  && token) return { type:'ownh',  token };
     return null;
   });
   const [showProvForm,setShowProvForm] = useState(false);
@@ -1276,6 +1417,8 @@ function App() {
   if (portal?.type === "inq")       return <PortalInqToken  token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
   if (portal?.type === "prov")      return <PortalProvToken token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
   if (portal?.type === "own")       return <PortalOwnToken  token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
+  if (portal?.type === "provh")     return <PortalProvHome  token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
+  if (portal?.type === "ownh")      return <PortalOwnHome   token={portal.token} fromAdmin={portal.fromAdmin} onBack={backToPortales}/>;
 
   // ════════════════════════════════════════════════════════
   //  ADMIN
@@ -1321,6 +1464,44 @@ function App() {
             </button>
           ))}
         </div>
+
+        {/* Sub-nav + búsqueda por pestaña (sesión 8, 12/08/2026): antes vivían
+            adentro del contenido de cada pestaña y se perdían al scrollear —
+            ahora quedan acá, dentro del mismo header sticky, siempre visibles. */}
+        {tab === "reclamos" && (
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <input placeholder="🔍 Buscar por ID, propiedad, inquilino..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...INP,flex:1}}/>
+            <button onClick={()=>setShowFil(f=>!f)} style={{background:showFil?"#1D44AA":"#fff",color:showFil?"#fff":"#475569",border:"1.5px solid #E2E8F0",borderRadius:10,padding:"0 14px",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>⚙️ Filtros</button>
+          </div>
+        )}
+        {tab === "proveedores" && (
+          <div style={{display:"flex",gap:2,marginTop:12}}>
+            {[["todos","Todos"],["Inactivo","Inactivos"],["Suspendido","Suspendidos"]].map(([id,l])=>{
+              const count = id==="todos"?proveedores.length:proveedores.filter(p=>(p.estado||"Activo")===id).length;
+              return <button key={id} onClick={()=>setProvTab(id)} style={{flex:1,background:provTab===id?"#fff":"transparent",color:provTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:provTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l} ({count})</button>;
+            })}
+          </div>
+        )}
+        {tab === "propiedades" && (
+          <>
+            <div style={{display:"flex",gap:2,marginTop:12}}>
+              {[["props","🏠 Propiedades"],["owners","👤 Propietarios"]].map(([id,l])=>(
+                <button key={id} onClick={()=>setPropTab(id)} style={{flex:1,background:propTab===id?"#fff":"transparent",color:propTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:propTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+            <input placeholder="🔍 Buscar..." value={propBusq} onChange={e=>setPropBusq(e.target.value)} style={{...INP,marginTop:10}}/>
+          </>
+        )}
+        {tab === "portales" && (
+          <>
+            <div style={{display:"flex",gap:2,marginTop:12}}>
+              {[["inq","🏠 Inquilinos"],["prov","🔧 Proveedores"],["own","👤 Propietarios"]].map(([id,l])=>(
+                <button key={id} onClick={()=>{setPortalTab(id);setPortalBusq("");}} style={{flex:1,background:portalTab===id?"#fff":"transparent",color:portalTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:portalTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+            <input placeholder="🔍 Buscar..." value={portalBusq} onChange={e=>setPortalBusq(e.target.value)} style={{...INP,marginTop:10}}/>
+          </>
+        )}
       </div>
 
       {/* ── INICIO ── */}
@@ -1364,11 +1545,7 @@ function App() {
 
       {/* ── RECLAMOS ── */}
       {tab === "reclamos" && (
-        <div style={{padding:"0 16px 24px"}}>
-          <div style={{display:"flex",gap:8,marginBottom:8}}>
-            <input placeholder="🔍 Buscar por ID, propiedad, inquilino..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...INP,flex:1}}/>
-            <button onClick={()=>setShowFil(f=>!f)} style={{background:showFil?"#1D44AA":"#fff",color:showFil?"#fff":"#475569",border:"1.5px solid #E2E8F0",borderRadius:10,padding:"0 14px",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>⚙️ Filtros</button>
-          </div>
+        <div style={{padding:"10px 16px 24px"}}>
           {showFil && (
             <div style={{display:"flex",gap:8,marginBottom:10}}>
               <select value={fEst}  onChange={e=>setFEst(e.target.value)}  style={{...INP,flex:1}}>{["Todos",...ESTADOS].map(o=><option key={o}>{o}</option>)}</select>
@@ -1405,12 +1582,6 @@ function App() {
       {/* ── PROVEEDORES ── */}
       {tab === "proveedores" && (
         <div style={{paddingBottom:24}}>
-          <div style={{display:"flex",background:"#0F1E3C",padding:"0 16px"}}>
-            {[["todos","Todos"],["Inactivo","Inactivos"],["Suspendido","Suspendidos"]].map(([id,l])=>{
-              const count = id==="todos"?proveedores.length:proveedores.filter(p=>(p.estado||"Activo")===id).length;
-              return <button key={id} onClick={()=>setProvTab(id)} style={{flex:1,background:provTab===id?"#fff":"transparent",color:provTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:provTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l} ({count})</button>;
-            })}
-          </div>
           <div style={{padding:"12px 16px 0"}}>
           {proveedores.filter(p=>provTab==="todos"||(p.estado||"Activo")===provTab).map(p => {
             const act = reclamos.filter(r => r.proveedor === p.nombre && r.estado !== "Cerrado").length;
@@ -1447,17 +1618,7 @@ function App() {
 
       {/* ── PORTALES ── */}
       {tab === "portales" && (
-        <div style={{paddingBottom:24}}>
-          {/* Sub-tabs */}
-          <div style={{display:"flex",background:"#0F1E3C",padding:"0 16px"}}>
-            {[["inq","🏠 Inquilinos"],["prov","🔧 Proveedores"],["own","👤 Propietarios"]].map(([id,l])=>(
-              <button key={id} onClick={()=>{setPortalTab(id);setPortalBusq("");}} style={{flex:1,background:portalTab===id?"#fff":"transparent",color:portalTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:portalTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l}</button>
-            ))}
-          </div>
-          <div style={{padding:"12px 16px 0"}}>
-            <input placeholder="🔍 Buscar..." value={portalBusq} onChange={e=>setPortalBusq(e.target.value)} style={{...INP,marginBottom:12}}/>
-          </div>
-
+        <div style={{paddingBottom:24,paddingTop:12}}>
           {/* ── INQUILINOS ── */}
           {/* Único sub-tab que sigue siendo "por propiedad": es el punto de */}
           {/* entrada para reportar un problema nuevo, no requiere token */}
@@ -1488,11 +1649,31 @@ function App() {
           )}
 
           {/* ── PROVEEDORES ── */}
-          {/* Cada link de proveedor es por RECLAMO (portalToken), no por */}
-          {/* proveedor — así que acá se listan los reclamos activos con */}
-          {/* proveedor asignado, en vez de la lista de proveedores. */}
+          {/* Desde la sesión 8 (11/08/2026) cada proveedor tiene ADEMÁS un */}
+          {/* link fijo "Portal completo" (portal_token propio), con todos */}
+          {/* sus trabajos activos + historial — no hace falta mandarle un */}
+          {/* link nuevo por cada reclamo. Abajo se mantiene el listado por */}
+          {/* reclamo puntual, útil para compartir/avisar de UN trabajo específico. */}
           {portalTab==="prov" && (
             <div style={{padding:"0 16px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Portal completo por proveedor</div>
+              {proveedores.filter(p=>!portalBusq||p.nombre.toLowerCase().includes(portalBusq.toLowerCase())).map(p=>{
+                const linkHome = portalLink({portal:'provh', t:p.portalToken});
+                const telNum = (p.tel||"").replace(/\D/g,"");
+                const waHome = telNum ? `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de trabajos (guardalo, no cambia):\n${linkHome}`)}` : null;
+                return (
+                  <div key={p.id} style={{...CARD,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre}</div>
+                      <div style={{fontSize:11,color:"#64748B"}}>{p.rubro}</div>
+                    </div>
+                    <button onClick={()=>setPortal({type:"provh",token:p.portalToken,fromAdmin:true})} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Entrar →</button>
+                    {p.tel&&<a href={waHome} target="_blank" style={{background:"#25D366",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:11,cursor:"pointer",textDecoration:"none"}}>💬</a>}
+                  </div>
+                );
+              })}
+
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,margin:"18px 0 8px"}}>Trabajos activos (por reclamo puntual)</div>
               {reclamos.filter(r=>r.proveedor&&r.estado!=="Cerrado").filter(r=>!portalBusq||r.proveedor.toLowerCase().includes(portalBusq.toLowerCase())||r.id.toLowerCase().includes(portalBusq.toLowerCase())||r.propiedad.toLowerCase().includes(portalBusq.toLowerCase())).map(r=>{
                 const prov = proveedores.find(p=>p.nombre===r.proveedor);
                 const link = portalLink({portal:'prov', t:r.portalToken});
@@ -1521,10 +1702,31 @@ function App() {
           )}
 
           {/* ── PROPIETARIOS ── */}
-          {/* Mismo criterio: el link es por RECLAMO, se listan los reclamos */}
-          {/* activos cuyo propietario se puede resolver (propiedad → ownerId). */}
+          {/* Desde la sesión 8 (11/08/2026) cada propietario tiene ADEMÁS un */}
+          {/* link fijo "Portal completo" (portal_token propio), con TODAS sus */}
+          {/* propiedades y reclamos (activos + historial) — cubre el caso de */}
+          {/* propietarios con más de una propiedad. Abajo se mantiene el */}
+          {/* listado por reclamo puntual para avisar de UNO específico. */}
           {portalTab==="own" && (
             <div style={{padding:"0 16px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Portal completo por propietario</div>
+              {propietarios.filter(o=>!portalBusq||o.nombre.toLowerCase().includes(portalBusq.toLowerCase())).map(o=>{
+                const linkHome = portalLink({portal:'ownh', t:o.portalToken});
+                const telNum = (o.tel||"").replace(/\D/g,"");
+                const waHome = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de propiedades y reclamos (guardalo, no cambia):\n${linkHome}`)}` : null;
+                return (
+                  <div key={o.id} style={{...CARD,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.nombre}</div>
+                      {o.tel&&<div style={{fontSize:11,color:"#64748B"}}>📞 {o.tel}</div>}
+                    </div>
+                    <button onClick={()=>setPortal({type:"ownh",token:o.portalToken,fromAdmin:true})} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Entrar →</button>
+                    {o.tel&&<a href={waHome} target="_blank" style={{background:"#25D366",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:11,cursor:"pointer",textDecoration:"none"}}>💬</a>}
+                  </div>
+                );
+              })}
+
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,margin:"18px 0 8px"}}>Reclamos activos (por reclamo puntual)</div>
               {reclamos.filter(r=>r.estado!=="Cerrado").map(r=>{
                 const prop = (propiedades.length>0?propiedades:PROPS_DATA).find(p=>p.dir===r.propiedad);
                 const owner = prop && (propietarios.length>0?propietarios:OWNERS).find(o=>o.id===prop.ownerId);
@@ -1558,16 +1760,7 @@ function App() {
 
       {/* ── DATOS: PROPIEDADES Y PROPIETARIOS ── */}
       {tab === "propiedades" && (
-        <div style={{paddingBottom:24}}>
-          <div style={{display:"flex",background:"#0F1E3C",padding:"0 16px"}}>
-            {[["props","🏠 Propiedades"],["owners","👤 Propietarios"]].map(([id,l])=>(
-              <button key={id} onClick={()=>setPropTab(id)} style={{flex:1,background:propTab===id?"#fff":"transparent",color:propTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:propTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
-            ))}
-          </div>
-          <div style={{padding:"10px 16px 0"}}>
-            <input placeholder="🔍 Buscar..." value={propBusq} onChange={e=>setPropBusq(e.target.value)} style={{...INP,marginBottom:10}}/>
-          </div>
-
+        <div style={{paddingBottom:24,paddingTop:10}}>
           {propTab==="props" && (
             <div style={{padding:"0 16px"}}>
               {propiedades
