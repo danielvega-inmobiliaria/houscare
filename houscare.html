@@ -1584,6 +1584,8 @@ function App() {
             const act = reclamos.filter(r => r.proveedor === p.nombre && r.estado !== "Cerrado").length;
             const tot = reclamos.filter(r => r.proveedor === p.nombre).length;
             const estColor = p.estado==="Activo"?{bg:"#D1FAE5",t:"#065F46"}:p.estado==="Inactivo"?{bg:"#FEF3C7",t:"#92400E"}:{bg:"#FEE2E2",t:"#991B1B"};
+            const telNum = (p.tel||"").replace(/\D/g,"");
+            const waLinkPortal = `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de trabajos (guardalo, no cambia):\n${portalLink({portal:'provh', t:p.portalToken})}`)}`;
             return (
               <div key={p.id} style={CARD}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
@@ -1601,8 +1603,8 @@ function App() {
                 <div style={{fontSize:12,color:"#475569",marginBottom:2}}>📞 {p.tel||"—"}</div>
                 <div style={{fontSize:12,color:"#475569",marginBottom:10}}>✉️ {p.email||"—"}</div>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
-                  <button onClick={()=>copyLink(portalLink({portal:'provh', t:p.portalToken}))} style={{...BB,flex:2,fontSize:12,padding:"9px 0"}}>🔗 Link portal</button>
-                  {p.tel&&<a href={`https://wa.me/${p.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                  <a href={waLinkPortal} target="_blank" style={{...BB,flex:2,fontSize:12,padding:"9px 0",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>🔗 Link portal</a>
+                  {p.tel&&<a href={`https://wa.me/${telNum}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                   <button onClick={()=>deleteProv(p.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>🗑</button>
                 </div>
                 <div style={{fontSize:11,color:"#94A3B8"}}>{tot} reclamo{tot!==1?"s":""} · <span style={{color:act>0?"#10B981":"#94A3B8"}}>{act} activo{act!==1?"s":""}</span></div>
@@ -1688,6 +1690,8 @@ function App() {
                 .filter(o=>!propBusq||o.nombre.toLowerCase().includes(propBusq.toLowerCase()))
                 .map(o=>{
                   const nProps = propiedades.filter(p=>p.ownerId===o.id).length;
+                  const telNum = (o.tel||"").replace(/\D/g,"");
+                  const waLinkPortal = `https://wa.me/${telNum?"549"+telNum:""}?text=${encodeURIComponent(`Houscare — Tu portal de propiedades y reclamos (guardalo, no cambia):\n${portalLink({portal:'ownh', t:o.portalToken})}`)}`;
                   return (
                     <div key={o.id} style={CARD}>
                       <div style={{fontWeight:700,fontSize:14,color:"#0F1E3C",marginBottom:4}}>{o.nombre}</div>
@@ -1699,8 +1703,8 @@ function App() {
                         <button onClick={()=>deleteOwner(o.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer"}}>🗑</button>
                       </div>
                       <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>copyLink(portalLink({portal:'ownh', t:o.portalToken}))} style={{...BB,flex:1,fontSize:11,padding:"7px 0"}}>🔗 Link portal</button>
-                        {o.tel&&<a href={`https://wa.me/549${o.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
+                        <a href={waLinkPortal} target="_blank" style={{...BB,flex:1,fontSize:11,padding:"7px 0",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>🔗 Link portal</a>
+                        {o.tel&&<a href={`https://wa.me/549${telNum}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                       </div>
                     </div>
                   );
