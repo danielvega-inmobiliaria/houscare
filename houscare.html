@@ -966,7 +966,6 @@ function App() {
   const [ratingComent,setRatingComent]= useState("");
   const [provTab,     setProvTab]     = useState("todos");
   const [toast,      setToast]      = useState(null);
-  const [portalTab,  setPortalTab]  = useState("inq");
   const [portalBusq, setPortalBusq] = useState("");
   const [ratingModal,setRatingModal]= useState(null); // {id, provNombre, provId, val}
   // ── Auth admin (API REST — no aplica a los portales, que siguen sin login) ──
@@ -1493,14 +1492,12 @@ function App() {
           </>
         )}
         {tab === "portales" && (
-          <>
-            <div style={{display:"flex",gap:2,marginTop:12}}>
-              {[["inq","🏠 Inquilinos"],["prov","🔧 Proveedores"],["own","👤 Propietarios"]].map(([id,l])=>(
-                <button key={id} onClick={()=>{setPortalTab(id);setPortalBusq("");}} style={{flex:1,background:portalTab===id?"#fff":"transparent",color:portalTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:portalTab===id?800:600,fontSize:10,cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-            <input placeholder="🔍 Buscar..." value={portalBusq} onChange={e=>setPortalBusq(e.target.value)} style={{...INP,marginTop:10}}/>
-          </>
+          // Sesión 8 (12/08/2026): Portales quedó sólo para Inquilinos —
+          // proveedores y propietarios se unificaron en sus propias pestañas
+          // de gestión (Proveedores / Datos→Propietarios), con el link de
+          // portal + WhatsApp ahí mismo, para no duplicar la misma info en
+          // dos lugares. Ya no hace falta el toggle de 3 sub-pestañas.
+          <input placeholder="🔍 Buscar propiedad o inquilino..." value={portalBusq} onChange={e=>setPortalBusq(e.target.value)} style={{...INP,marginTop:12}}/>
         )}
       </div>
 
@@ -1604,7 +1601,7 @@ function App() {
                 <div style={{fontSize:12,color:"#475569",marginBottom:2}}>📞 {p.tel||"—"}</div>
                 <div style={{fontSize:12,color:"#475569",marginBottom:10}}>✉️ {p.email||"—"}</div>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
-                  <button onClick={()=>{setTab("portales");setPortalTab("prov");setPortalBusq(p.nombre);}} style={{...BB,flex:2,fontSize:12,padding:"9px 0"}}>Ver trabajos</button>
+                  <button onClick={()=>copyLink(portalLink({portal:'provh', t:p.portalToken}))} style={{...BB,flex:2,fontSize:12,padding:"9px 0"}}>🔗 Link portal</button>
                   {p.tel&&<a href={`https://wa.me/${p.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                   <button onClick={()=>deleteProv(p.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>🗑</button>
                 </div>
@@ -1617,144 +1614,37 @@ function App() {
       )}
 
       {/* ── PORTALES ── */}
+      {/* Desde sesión 8 (12/08/2026) esta pestaña es sólo para Inquilinos: */}
+      {/* es el punto de entrada para reportar un problema nuevo (por */}
+      {/* propiedad, no requiere token — ver POST /api/portal/inquilino/nueva/<pid> */}
+      {/* en el backend). Los links de proveedor y propietario (portal */}
+      {/* completo + WhatsApp) se unificaron en sus propias pestañas de */}
+      {/* gestión (Proveedores / Datos→Propietarios), para no tener la */}
+      {/* misma info duplicada en dos lugares. */}
       {tab === "portales" && (
         <div style={{paddingBottom:24,paddingTop:12}}>
-          {/* ── INQUILINOS ── */}
-          {/* Único sub-tab que sigue siendo "por propiedad": es el punto de */}
-          {/* entrada para reportar un problema nuevo, no requiere token */}
-          {/* (ver POST /api/portal/inquilino/nueva/<pid> en el backend). */}
-          {portalTab==="inq" && (
-            <div style={{padding:"0 16px"}}>
-              {(propiedades.length>0?propiedades:PROPS_DATA).filter(p=>!portalBusq||p.dir.toLowerCase().includes(portalBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(portalBusq.toLowerCase())).map((prop)=>{
-                const link = portalLink({portal:'inq', pid:prop.id});
-                const recProp = reclamos.filter(r=>r.propiedad===prop.dir&&r.estado!=="Cerrado").length;
-                const telNum = (prop.telInq||"").replace(/\D/g,"");
-                const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de reclamos:\n${link}`)}` : `https://wa.me/?text=${encodeURIComponent(`Houscare — Portal de ${prop.dir}:\n${link}`)}`;
-                return (
-                  <div key={prop.id} style={{...CARD,marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",flex:1,marginRight:8}}>{prop.dir}</div>
-                      {recProp>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8,flexShrink:0}}>⚠️ {recProp} activo{recProp!==1?"s":""}</span>}
-                    </div>
-                    {prop.inquilino&&<div style={{fontSize:12,color:"#64748B",marginBottom:2}}>👤 {prop.inquilino}</div>}
-                    {prop.telInq&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:6}}>📞 {prop.telInq}</div>}
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"inq-nuevo",pid:prop.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
-                      <a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>
-                    </div>
+          <div style={{padding:"0 16px"}}>
+            {(propiedades.length>0?propiedades:PROPS_DATA).filter(p=>!portalBusq||p.dir.toLowerCase().includes(portalBusq.toLowerCase())||(p.inquilino||"").toLowerCase().includes(portalBusq.toLowerCase())).map((prop)=>{
+              const link = portalLink({portal:'inq', pid:prop.id});
+              const recProp = reclamos.filter(r=>r.propiedad===prop.dir&&r.estado!=="Cerrado").length;
+              const telNum = (prop.telInq||"").replace(/\D/g,"");
+              const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de reclamos:\n${link}`)}` : `https://wa.me/?text=${encodeURIComponent(`Houscare — Portal de ${prop.dir}:\n${link}`)}`;
+              return (
+                <div key={prop.id} style={{...CARD,marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",flex:1,marginRight:8}}>{prop.dir}</div>
+                    {recProp>0&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8,flexShrink:0}}>⚠️ {recProp} activo{recProp!==1?"s":""}</span>}
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ── PROVEEDORES ── */}
-          {/* Desde la sesión 8 (11/08/2026) cada proveedor tiene ADEMÁS un */}
-          {/* link fijo "Portal completo" (portal_token propio), con todos */}
-          {/* sus trabajos activos + historial — no hace falta mandarle un */}
-          {/* link nuevo por cada reclamo. Abajo se mantiene el listado por */}
-          {/* reclamo puntual, útil para compartir/avisar de UN trabajo específico. */}
-          {portalTab==="prov" && (
-            <div style={{padding:"0 16px"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Portal completo por proveedor</div>
-              {proveedores.filter(p=>!portalBusq||p.nombre.toLowerCase().includes(portalBusq.toLowerCase())).map(p=>{
-                const linkHome = portalLink({portal:'provh', t:p.portalToken});
-                const telNum = (p.tel||"").replace(/\D/g,"");
-                const waHome = telNum ? `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de trabajos (guardalo, no cambia):\n${linkHome}`)}` : null;
-                return (
-                  <div key={p.id} style={{...CARD,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre}</div>
-                      <div style={{fontSize:11,color:"#64748B"}}>{p.rubro}</div>
-                    </div>
-                    <button onClick={()=>setPortal({type:"provh",token:p.portalToken,fromAdmin:true})} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Entrar →</button>
-                    {p.tel&&<a href={waHome} target="_blank" style={{background:"#25D366",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:11,cursor:"pointer",textDecoration:"none"}}>💬</a>}
+                  {prop.inquilino&&<div style={{fontSize:12,color:"#64748B",marginBottom:2}}>👤 {prop.inquilino}</div>}
+                  {prop.telInq&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:6}}>📞 {prop.telInq}</div>}
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>setPortal({type:"inq-nuevo",pid:prop.id,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
+                    <a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>
                   </div>
-                );
-              })}
-
-              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,margin:"18px 0 8px"}}>Trabajos activos (por reclamo puntual)</div>
-              {reclamos.filter(r=>r.proveedor&&r.estado!=="Cerrado").filter(r=>!portalBusq||r.proveedor.toLowerCase().includes(portalBusq.toLowerCase())||r.id.toLowerCase().includes(portalBusq.toLowerCase())||r.propiedad.toLowerCase().includes(portalBusq.toLowerCase())).map(r=>{
-                const prov = proveedores.find(p=>p.nombre===r.proveedor);
-                const link = portalLink({portal:'prov', t:r.portalToken});
-                const telNum = (prov?.tel||"").replace(/\D/g,"");
-                const waDirecto = telNum ? `https://wa.me/${telNum}?text=${encodeURIComponent(`Houscare — Tu trabajo asignado (${r.id}):\n${link}`)}` : null;
-                return (
-                  <div key={r.id} style={{...CARD,marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                      <div>
-                        <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6,marginRight:6}}>{r.id}</span>
-                        <span style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{r.proveedor}</span>
-                      </div>
-                      <Badge label={r.estado} sm/>
-                    </div>
-                    <div style={{fontSize:11,color:"#1D44AA",marginBottom:2}}>🔧 {prov?.rubro||r.sector}{prov?.zona?" · 📍 "+prov.zona:""}</div>
-                    <div style={{fontSize:11,color:"#64748B",marginBottom:8}}>🏠 {r.propiedad}</div>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>setPortal({type:"prov",token:r.portalToken,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
-                      {waDirecto&&<a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
-                    </div>
-                  </div>
-                );
-              })}
-              {reclamos.filter(r=>r.proveedor&&r.estado!=="Cerrado").length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8",fontSize:13}}>Sin trabajos activos asignados a proveedores.</div>}
-            </div>
-          )}
-
-          {/* ── PROPIETARIOS ── */}
-          {/* Desde la sesión 8 (11/08/2026) cada propietario tiene ADEMÁS un */}
-          {/* link fijo "Portal completo" (portal_token propio), con TODAS sus */}
-          {/* propiedades y reclamos (activos + historial) — cubre el caso de */}
-          {/* propietarios con más de una propiedad. Abajo se mantiene el */}
-          {/* listado por reclamo puntual para avisar de UNO específico. */}
-          {portalTab==="own" && (
-            <div style={{padding:"0 16px"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Portal completo por propietario</div>
-              {propietarios.filter(o=>!portalBusq||o.nombre.toLowerCase().includes(portalBusq.toLowerCase())).map(o=>{
-                const linkHome = portalLink({portal:'ownh', t:o.portalToken});
-                const telNum = (o.tel||"").replace(/\D/g,"");
-                const waHome = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de propiedades y reclamos (guardalo, no cambia):\n${linkHome}`)}` : null;
-                return (
-                  <div key={o.id} style={{...CARD,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0F1E3C",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.nombre}</div>
-                      {o.tel&&<div style={{fontSize:11,color:"#64748B"}}>📞 {o.tel}</div>}
-                    </div>
-                    <button onClick={()=>setPortal({type:"ownh",token:o.portalToken,fromAdmin:true})} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Entrar →</button>
-                    {o.tel&&<a href={waHome} target="_blank" style={{background:"#25D366",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:11,cursor:"pointer",textDecoration:"none"}}>💬</a>}
-                  </div>
-                );
-              })}
-
-              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,margin:"18px 0 8px"}}>Reclamos activos (por reclamo puntual)</div>
-              {reclamos.filter(r=>r.estado!=="Cerrado").map(r=>{
-                const prop = (propiedades.length>0?propiedades:PROPS_DATA).find(p=>p.dir===r.propiedad);
-                const owner = prop && (propietarios.length>0?propietarios:OWNERS).find(o=>o.id===prop.ownerId);
-                return owner ? {r, owner} : null;
-              }).filter(Boolean).filter(({r,owner})=>!portalBusq||owner.nombre.toLowerCase().includes(portalBusq.toLowerCase())||r.id.toLowerCase().includes(portalBusq.toLowerCase())).map(({r,owner})=>{
-                const link = portalLink({portal:'own', t:r.portalToken});
-                const telNum = (owner.tel||"").replace(/\D/g,"");
-                const waDirecto = telNum ? `https://wa.me/549${telNum}?text=${encodeURIComponent(`Houscare — Tu portal de propietario (${r.id}):\n${link}`)}` : null;
-                return (
-                  <div key={r.id} style={{...CARD,marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                      <div>
-                        <span style={{fontSize:11,fontWeight:800,color:"#1D44AA",background:"#EFF6FF",padding:"2px 8px",borderRadius:6,marginRight:6}}>{r.id}</span>
-                        <span style={{fontSize:13,fontWeight:700,color:"#0F1E3C"}}>{owner.nombre}</span>
-                      </div>
-                      {r.aprobacion==="pendiente"&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",fontWeight:700,padding:"2px 8px",borderRadius:8}}>⏳ pendiente</span>}
-                    </div>
-                    <div style={{fontSize:11,color:"#64748B",marginBottom:2}}>🏠 {r.propiedad}</div>
-                    {owner.tel&&<div style={{fontSize:11,color:"#94A3B8",marginBottom:2}}>📞 {owner.tel}</div>}
-                    <div style={{display:"flex",gap:6,marginTop:6}}>
-                      <button onClick={()=>setPortal({type:"own",token:r.portalToken,fromAdmin:true})} style={{...BB,flex:2,fontSize:11,padding:"8px 0"}}>Entrar →</button>
-                      {waDirecto&&<a href={waDirecto} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -1804,9 +1694,13 @@ function App() {
                       <div style={{fontSize:12,color:"#64748B",marginBottom:2}}>🏠 {nProps} propiedad{nProps!==1?"es":""}</div>
                       {o.tel&&<div style={{fontSize:12,color:"#475569",marginBottom:2}}>📞 {o.tel}</div>}
                       {o.email&&<div style={{fontSize:12,color:"#475569",marginBottom:8}}>✉️ {o.email}</div>}
-                      <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>{setOwnerForm({id:o.id,nombre:o.nombre,email:o.email||"",tel:o.tel||""});setEditOwnerId(o.id);setShowOwnerForm(true);}} style={{...BG,flex:2,fontSize:11,padding:"7px 0"}}>✏️ Editar</button>
+                      <div style={{display:"flex",gap:6,marginBottom:6}}>
+                        <button onClick={()=>{setOwnerForm({id:o.id,nombre:o.nombre,email:o.email||"",tel:o.tel||""});setEditOwnerId(o.id);setShowOwnerForm(true);}} style={{...BG,flex:1,fontSize:11,padding:"7px 0"}}>✏️ Editar</button>
                         <button onClick={()=>deleteOwner(o.id)} style={{flex:1,background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer"}}>🗑</button>
+                      </div>
+                      <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>copyLink(portalLink({portal:'ownh', t:o.portalToken}))} style={{...BB,flex:1,fontSize:11,padding:"7px 0"}}>🔗 Link portal</button>
+                        {o.tel&&<a href={`https://wa.me/549${o.tel.replace(/\D/g,"")}`} target="_blank" style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:12,padding:"7px 0",fontWeight:700,fontSize:11,cursor:"pointer",textAlign:"center",textDecoration:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>💬 WA</a>}
                       </div>
                     </div>
                   );
