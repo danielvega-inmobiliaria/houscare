@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Houscare</title>
 <meta name="apple-mobile-web-app-title" content="Houscare">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0F1E3C">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -968,6 +974,11 @@ function App() {
   const [toast,      setToast]      = useState(null);
   const [portalBusq, setPortalBusq] = useState("");
   const [ratingModal,setRatingModal]= useState(null); // {id, provNombre, provId, val}
+  // ── Perfil de la inmobiliaria: "Mi empresa" (sesión 17/08/2026) ──
+  const [empresa,      setEmpresa]      = useState(null);
+  const [empresaForm,  setEmpresaForm]  = useState({ nombre:"", contacto:"", telefono:"", emailContacto:"", slogan:"" });
+  const [empresaBusy,  setEmpresaBusy]  = useState(false);
+  const [logoBusy,     setLogoBusy]     = useState(false);
   // ── Auth admin (API REST — no aplica a los portales, que siguen sin login) ──
   const [usuario,    setUsuario]    = useState(null);
   const [loginForm,  setLoginForm]  = useState({ email:"", password:"" });
@@ -992,16 +1003,25 @@ function App() {
   // PROVEEDORES_INIT si la tabla estaba vacía). La migración de los datos
   // reales queda para Fase 5 (ver PROYECTO.md).
   const loadAdminData = async () => {
-    const [propsRes, ownRes, provRes, recRes] = await Promise.all([
+    const [propsRes, ownRes, provRes, recRes, empRes] = await Promise.all([
       apiFetch('/api/propiedades'),
       apiFetch('/api/propietarios'),
       apiFetch('/api/proveedores'),
       apiFetch('/api/reclamos'),
+      apiFetch('/api/organizacion'),
     ]);
     setPropiedades(propsRes.propiedades);
     setPropietarios(ownRes.propietarios);
     setProveedores(provRes.proveedores);
     setReclamos(recRes.reclamos);
+    setEmpresa(empRes.organizacion);
+    setEmpresaForm({
+      nombre: empRes.organizacion.nombre || "",
+      contacto: empRes.organizacion.contacto || "",
+      telefono: empRes.organizacion.telefono || "",
+      emailContacto: empRes.organizacion.emailContacto || "",
+      slogan: empRes.organizacion.slogan || "",
+    });
   };
 
   // ── Carga inicial ──
@@ -1063,6 +1083,50 @@ function App() {
     try { await apiFetch('/api/auth/logout', { method:'POST' }); } catch (e) {}
     setUsuario(null);
     setReclamos([]); setPropiedades([]); setPropietarios([]); setProveedores(PROVEEDORES_INIT);
+    setEmpresa(null);
+  };
+
+  // ── Perfil de la inmobiliaria ("Mi empresa") ──
+  const guardarEmpresa = async () => {
+    if (!empresaForm.nombre.trim()) { showToast("⚠️ El nombre de la inmobiliaria es obligatorio"); return; }
+    setEmpresaBusy(true);
+    try {
+      const r = await apiFetch('/api/organizacion', { method:'PUT', body: empresaForm });
+      setEmpresa(r.organizacion);
+      showToast("✅ Datos de la empresa guardados");
+    } catch (e) {
+      showToast("⚠️ " + e.message);
+    } finally {
+      setEmpresaBusy(false);
+    }
+  };
+  const subirLogo = async (file) => {
+    setLogoBusy(true);
+    try {
+      const fd = new FormData(); fd.append('logo', file);
+      const res = await fetch(`${API_BASE}/api/organizacion/logo`, { method:'POST', credentials:'include', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      setEmpresa(data.organizacion);
+      showToast("🖼️ Logo actualizado");
+    } catch (e) {
+      showToast("⚠️ " + e.message);
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+  const borrarLogo = async () => {
+    if (!confirm("¿Quitar el logo de la inmobiliaria?")) return;
+    setLogoBusy(true);
+    try {
+      await apiFetch('/api/organizacion/logo', { method:'DELETE' });
+      setEmpresa(e=>({...e, logoUrl:""}));
+      showToast("🗑️ Logo eliminado");
+    } catch (e) {
+      showToast("⚠️ " + e.message);
+    } finally {
+      setLogoBusy(false);
+    }
   };
 
   const doRegistro = async () => {
@@ -1438,7 +1502,9 @@ function App() {
       <div style={{background:"#0F1E3C",padding:"14px 16px",position:"sticky",top:0,zIndex:50}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <Logo/>
+            {empresa?.logoUrl
+              ? <img src={empresa.logoUrl} alt="Logo" style={{width:32,height:32,borderRadius:8,objectFit:"cover",background:"#fff"}}/>
+              : <Logo/>}
             <div>
               <div style={{color:"#fff",fontWeight:800,fontSize:15,lineHeight:1.2}}>{usuario?.nombre || "Houscare"}</div>
               <div style={{color:"#94A3B8",fontSize:11}}>{usuario?.org_nombre || ""}</div>
@@ -1448,12 +1514,14 @@ function App() {
             <button onClick={()=>{setShowChangePass(true);setChangePassErr("");}} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:14,cursor:"pointer"}} title="Cambiar contraseña">🔑</button>
             <button onClick={()=>{ if(confirm("¿Cerrar sesión?")) doLogout(); }} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:14,cursor:"pointer"}} title={`Salir (${usuario?.nombre||""})`}>🚪</button>
             <button onClick={refresh} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:10,padding:"8px 10px",fontWeight:700,fontSize:16,cursor:"pointer"}} title="Actualizar datos">🔄</button>
-            <button onClick={()=>{
-              if(tab==="proveedores"){setProvForm(EPROVF);setShowProvForm(true);}
-              else if(tab==="propiedades"&&propTab==="props"){setPropForm(EPROPF);setEditPropId(null);setShowPropForm(true);}
-              else if(tab==="propiedades"&&propTab==="owners"){setOwnerForm(EOWNF);setEditOwnerId(null);setShowOwnerForm(true);}
-              else{setForm(EF);setEditId(null);setShowForm(true);}
-            }} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
+            {!(tab==="propiedades"&&propTab==="empresa") && (
+              <button onClick={()=>{
+                if(tab==="proveedores"){setProvForm(EPROVF);setShowProvForm(true);}
+                else if(tab==="propiedades"&&propTab==="props"){setPropForm(EPROPF);setEditPropId(null);setShowPropForm(true);}
+                else if(tab==="propiedades"&&propTab==="owners"){setOwnerForm(EOWNF);setEditOwnerId(null);setShowOwnerForm(true);}
+                else{setForm(EF);setEditId(null);setShowForm(true);}
+              }} style={{background:"#1D44AA",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>
+            )}
           </div>
         </div>
         <div style={{display:"flex",gap:2,marginTop:12}}>
@@ -1484,11 +1552,13 @@ function App() {
         {tab === "propiedades" && (
           <>
             <div style={{display:"flex",gap:2,marginTop:12}}>
-              {[["props","🏠 Propiedades"],["owners","👤 Propietarios"]].map(([id,l])=>(
+              {[["props","🏠 Propiedades"],["owners","👤 Propietarios"],["empresa","🏢 Mi empresa"]].map(([id,l])=>(
                 <button key={id} onClick={()=>setPropTab(id)} style={{flex:1,background:propTab===id?"#fff":"transparent",color:propTab===id?"#0F1E3C":"rgba(255,255,255,.6)",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 4px",fontWeight:propTab===id?800:600,fontSize:11,cursor:"pointer"}}>{l}</button>
               ))}
             </div>
-            <input placeholder="🔍 Buscar..." value={propBusq} onChange={e=>setPropBusq(e.target.value)} style={{...INP,marginTop:10}}/>
+            {propTab!=="empresa" && (
+              <input placeholder="🔍 Buscar..." value={propBusq} onChange={e=>setPropBusq(e.target.value)} style={{...INP,marginTop:10}}/>
+            )}
           </>
         )}
         {tab === "portales" && (
@@ -1710,6 +1780,40 @@ function App() {
                   );
                 })
               }
+            </div>
+          )}
+
+          {propTab==="empresa" && (
+            <div style={{padding:"0 16px"}}>
+              <div style={CARD}>
+                <div style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Logo</div>
+                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+                  {empresa?.logoUrl
+                    ? <img src={empresa.logoUrl} alt="Logo de la inmobiliaria" style={{width:64,height:64,borderRadius:12,objectFit:"cover",border:"1.5px solid #E2E8F0"}}/>
+                    : <div style={{width:64,height:64,borderRadius:12,background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>🏢</div>}
+                  <div style={{display:"flex",flexDirection:"column",gap:6,flex:1}}>
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" id="logoInput" disabled={logoBusy} style={{display:"none"}} onChange={e=>{ const f=e.target.files[0]; if(f) subirLogo(f); e.target.value=""; }}/>
+                    <label htmlFor="logoInput" style={{...BG,textAlign:"center",opacity:logoBusy?.6:1,cursor:logoBusy?"default":"pointer"}}>{logoBusy?"Subiendo…":"📤 Subir logo"}</label>
+                    {empresa?.logoUrl && <button onClick={borrarLogo} disabled={logoBusy} style={{background:"#FEE2E2",color:"#991B1B",border:"none",borderRadius:12,padding:"10px 0",fontWeight:700,fontSize:12,cursor:logoBusy?"default":"pointer"}}>🗑 Quitar logo</button>}
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:"#94A3B8"}}>PNG, JPG, WEBP o SVG. Se muestra en el encabezado del panel.</div>
+              </div>
+
+              <div style={CARD}>
+                <div style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Datos de la inmobiliaria</div>
+                <label style={LBL}>Nombre de la inmobiliaria *</label>
+                <input value={empresaForm.nombre} onChange={e=>setEmpresaForm(f=>({...f,nombre:e.target.value}))} style={{...INP,marginBottom:12}}/>
+                <label style={LBL}>Persona de contacto</label>
+                <input value={empresaForm.contacto} onChange={e=>setEmpresaForm(f=>({...f,contacto:e.target.value}))} style={{...INP,marginBottom:12}}/>
+                <label style={LBL}>Teléfono</label>
+                <input value={empresaForm.telefono} onChange={e=>setEmpresaForm(f=>({...f,telefono:e.target.value}))} style={{...INP,marginBottom:12}}/>
+                <label style={LBL}>Email de contacto</label>
+                <input type="email" value={empresaForm.emailContacto} onChange={e=>setEmpresaForm(f=>({...f,emailContacto:e.target.value}))} style={{...INP,marginBottom:12}}/>
+                <label style={LBL}>Slogan</label>
+                <input value={empresaForm.slogan} onChange={e=>setEmpresaForm(f=>({...f,slogan:e.target.value}))} style={{...INP,marginBottom:16}}/>
+                <button onClick={guardarEmpresa} disabled={empresaBusy} style={{...BB,opacity:empresaBusy?.7:1}}>{empresaBusy?"Guardando…":"💾 Guardar cambios"}</button>
+              </div>
             </div>
           )}
         </div>
