@@ -1,0 +1,12 @@
+{
+  "name": "InmoFixAr",
+  "short_name": "InmoFixAr",
+  "start_url": "./houscare.html",
+  "display": "standalone",
+  "background_color": "#F0F4F8",
+  "theme_color": "#0F1E3C",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
